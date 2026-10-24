@@ -264,6 +264,20 @@ class MemoryStore:
         ).fetchall()
         return self._with_redactions([Event.from_row(row) for row in rows])
 
+    def first_event_after(self, ts: str, *, kind: str | None = None) -> Event | None:
+        """The oldest event strictly after ts, optionally limited to one kind."""
+        parse_ts(ts)
+        if kind is None:
+            row = self.conn.execute(
+                "SELECT * FROM events WHERE ts > ? ORDER BY ts ASC, rowid ASC LIMIT 1", (ts,)
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                "SELECT * FROM events WHERE ts > ? AND kind = ? ORDER BY ts ASC, rowid ASC LIMIT 1",
+                (ts, kind),
+            ).fetchone()
+        return self._with_redactions([Event.from_row(row)])[0] if row else None
+
     def latest_event(self, kind: str | None = None) -> Event | None:
         rows = self.events(limit=1, kind=kind)
         return rows[0] if rows else None

@@ -452,17 +452,27 @@ def apply_sleep_result(
 ) -> dict[str, Any]:
     when = now or utcnow()
     when_iso = now_iso() if now is None else when.isoformat(timespec="microseconds")
-    # The episode covers the raw material since the last sleep. Capture the
-    # window before writing tonight's diary/sleep events, so the index is built
-    # from what actually existed before this consolidation.
+    # The episode covers one waking window. Capture it before writing tonight's
+    # diary/sleep events, so the index is built from what existed before this
+    # consolidation. Start at the first wake after the previous sleep, not at
+    # the previous sleep itself: its stance/diary/notes are that window's
+    # consolidation, not material of this one.
     previous_sleep = store.latest_event("sleep")
+    include_start = True
     if previous_sleep is not None:
-        window_start = previous_sleep.ts
+        first_wake = store.first_event_after(previous_sleep.ts, kind="wake")
+        if first_wake is not None:
+            window_start = first_wake.ts
+        else:
+            # No wake recorded after the previous sleep; fall back to the
+            # boundary itself, exclusive, rather than re-absorbing it.
+            window_start = previous_sleep.ts
+            include_start = False
     else:
         first = store.events(limit=1, order="asc")
         window_start = first[0].ts if first else when_iso
     window_events = store.events_between(
-        window_start, when_iso, limit=400, include_start=previous_sleep is None
+        window_start, when_iso, limit=400, include_start=include_start
     )
     diary_event = store.append_event(
         "ai-observation",

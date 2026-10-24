@@ -357,4 +357,4 @@
 - SELF v4 的「我相信什么」新增：「我原来会把日记/片段里的时间缺口当成可信的既成事实去引用，而不回 L1 重算时间戳；叙事索引的忠实度只保证它抄了我说过的话，不保证我说过的话对。」
 - 07:20:07 再唤醒做短验证：她只凭醒来上下文正确读出最新片段标题「核对第一条生活片段的时间缺口」、上次睡去 `2026-10-25T07:19:44+08:00`、SELF v4 最新那条原文，以及真实缺口 23 秒；说明本地时间显示与 episode 读取都生效。07:20:19 再次睡去生成第三条 episode `episode_20261024T232019303248_5e8f9f`（标题「短验证：只凭醒来上下文答三点」）。
 - 当前云端：events=246、episodes=3、SELF versions=5（最新 v4）、budget 1.430776/5 元、asleep、chain ok；第一条 episode 的错误摘要保留在 L1 历史里，没有被改写，这正是「L1 为准」要处理的冲突。
-- 随后收紧片段边界：`MemoryStore.events_between(..., include_start: bool = True)` 允许排除起点，睡去时传 `include_start=previous_sleep is None`，所以有上一次睡去时，上一段的 sleep/diary 事件不再进入新片段的 `event_ids`；第一条片段（无 previous sleep）仍从出生事件开始。新增回归测试 `test_episode_does_not_reabsorb_the_previous_sleep_boundary`，全量 **126 passed**。
+- 随后收紧片段边界：`MemoryStore.events_between(..., include_start: bool = True)` 允许排除起点；睡去时用 `store.first_event_after(previous_sleep.ts, kind="wake")` 取上次睡去后的第一次醒来作为窗口起点，因此上一段的 sleep/diary/stance 整理事件不再进入新片段的 `event_ids`；没有 wake 时回退到 previous sleep 之后（exclusive），第一条片段（无 previous sleep）仍从出生事件开始。新增回归测试 `test_episode_does_not_reabsorb_the_previous_sleep_boundary`，全量 **126 passed**。

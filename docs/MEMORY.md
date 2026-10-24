@@ -197,9 +197,10 @@ L1 is the raw stream; L2/L3/SELF.md are judgments. An episode sits between them:
 append-only narrative of one waking window, created when she sleeps.
 
 - At sleep, the gateway remembers the previous `sleep` event and collects the real L1 events
-  between it and the new sleep. The window starts strictly after the previous sleep event, so
-  that window's own sleep/diary consolidation is not re-absorbed into the next episode; the
-  first episode (no previous sleep) still starts at the first event. The model may provide
+  between it and the new sleep. The window starts at the first `wake` after the previous
+  sleep, so that window's own sleep/diary/stance consolidation is not re-absorbed into the
+  next episode; without a wake it falls back to just after the previous sleep, and the first
+  episode (no previous sleep) still starts at the first event. The model may provide
   `episode: {title, summary}`; if it does not, the system writes a diary-index fallback with
   `origin="diary"` instead of inventing one.
 - `episodes` rows are append-only (triggers reject update/delete). `event_ids` is the exact
