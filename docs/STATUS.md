@@ -269,12 +269,14 @@
 - 没有可用收件人时写 `system/note`「自主输出没有可送达的通知目标（channel）；内容已留在 L1。」；`channel.send()` 返回 False 或抛异常时写 `system/error`，不再静默 `except: pass`。
 - 新增 3 个测试（notify_to 优先、回退 allow_senders、无收件人留 note）；全量 **98 passed**。云端配置没有 `notify_to`，部署后会自动用 `allow_senders` 的 QQ 邮箱作为通知地址。
 
-### 自主醒来也会剥离并记录觉察块（06:03 CST，待部署）
+### 自主醒来也会剥离并记录觉察块（06:06 CST，已部署并真实验证）
 
 - 真实自主醒来（21:57:16Z）暴露一个 bug：`process_message` 会用 `split_awareness_block` 剥离回复里的 `<awareness>` 块，但 `autonomous_wake` 没有；原始 XML 被写进 L1 observation，也通过邮件发给操作员（INBOX 1073 末尾可见半截块）。
 - `autonomous_wake` 现在先 `split_awareness_block`：L1 observation、窗口 transcript、`last_reply` 和邮件广播都只用可见文本；可见文本为空时写「（自主醒来没有留下可显示的文本。）」。
 - 如果块能解析，用 `create_card` 建卡，证据只使用这次真实存在的 `wake_event.id` 与 `observation.id`；模型自己写的 evidence 不会被采用。建卡失败写 `system/note`「自主醒来的觉察卡未记录：…」，不伪造证据。
 - 还修了截断场景：`_AWARENESS_BLOCK` 原来只匹配闭合块，回复被 token 上限切断时（真实邮件里就是半截块）会原样泄漏。`split_awareness_block` 现在遇到未闭合的 `<awareness ...>` 会从开标签起整段剥掉，数据置 None，不建卡；新增 `test_a_truncated_awareness_block_is_hidden_instead_of_leaking`。
 - 新增 `test_autonomous_wake_strips_awareness_and_records_it_with_real_refs`：断言返回文本与邮件正文不含 XML、L1 observation 不含 XML、新卡 trigger=T5、两条 evidence refs 都真实存在且包含 observation id；全量 **100 passed**。
-- 尚未部署；部署后要再跑一次真实自主醒来，确认邮件末尾不再出现原始块。
+- 已部署 `c665734` 到 `/home/dafeiyu/yugang` 并重启；服务 active。
+- 真实自主醒来验证（22:04:51Z / 06:04 CST）：手动插入 due alarm `alarm_20261024T220450026941_26c5d3`，她在 22:04:51 自主醒来、22:04:56 睡去；L1 observation `evt_20261024T220455544899_04664a` 不含 `<awareness`（1111 字），邮件 INBOX 1074 正文也不含该标签；旧邮件 1073 是修复前已经发出的历史泄漏，无法撤回，但不会再产生新的。
+- 这次她还回了一条 L2 复核、一张 open 卡的复核，并更新了 loop `ab253e`；睡去 `parsed=true`、`judgment_reviews=1`、`awareness_reviews=1`、`loop_updates=1`、`self_committed=false`。`/status`：events=184、chain ok、budget 0.984186/5、next_alarm=null。
 
