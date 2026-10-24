@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from yugang.protocol.sleep import build_sleep_messages
 from yugang.protocol.wake import build_wake_context, record_wake
 
 
@@ -56,8 +57,8 @@ def test_wake_context_reports_body_readings_without_claiming_experience(store, c
     assert "我的身体状态（系统读数，不是体验）" in context.prompt
     assert "L1 记忆：157 条" in context.prompt
     assert "已用 ¥0.79 / ¥5.00，剩余 ¥4.21" in context.prompt
-    assert "最近一次身体备份：2026-10-25T04:15:00+00:00" in context.prompt
-    assert "下一次自己设的醒来：2026-10-25T09:00:00+00:00（核对证据）" in context.prompt
+    assert "最近一次身体备份：2026-10-25T12:15:00+08:00" in context.prompt
+    assert "下一次自己设的醒来：2026-10-25T17:00:00+08:00（核对证据）" in context.prompt
     assert "http、email" in context.prompt
     assert "操作员暂停：否" in context.prompt
 
@@ -77,3 +78,33 @@ def test_wake_context_shows_evidence_ids_for_l2_and_cards(store, cfg):
     assert evidence.id in context.prompt
     assert judgment.id in context.prompt
     assert card.id in context.prompt
+
+def test_wake_context_renders_stored_timestamps_in_her_local_time(store, cfg):
+    memory = store.append_event(
+        "human", "message", "这条消息发生在 UTC 23:11。", ts="2026-10-24T23:11:16+00:00"
+    )
+    sleep = store.append_event(
+        "system", "sleep", "睡去", ts="2026-10-24T23:11:20+00:00", meta={"next_intent": "明早核对"}
+    )
+    context = build_wake_context(
+        store, cfg, query="", now=datetime(2026, 10, 24, 23, 15, tzinfo=timezone.utc)
+    )
+    assert "上次睡去的时间：2026-10-25T07:11:20+08:00" in context.prompt
+    assert f"- [{memory.id}] 2026-10-25T07:11:16+08:00 human/message" in context.prompt
+    assert sleep.ts not in context.prompt
+
+
+def test_sleep_prompt_states_local_now_and_localizes_events(store, cfg):
+    event = store.append_event(
+        "human", "message", "睡前最后一句话", ts="2026-10-24T23:14:00+00:00"
+    )
+    prompt = build_sleep_messages(
+        store,
+        cfg,
+        [],
+        now=datetime(2026, 10, 24, 23, 15, tzinfo=timezone.utc),
+    )[-1]["content"]
+    assert "## 主观时间" in prompt
+    assert "现在：2026-10-25T07:15:00+08:00（Asia/Shanghai）" in prompt
+    assert f"[{event.id}] 2026-10-25T07:14:00+08:00 human/message" in prompt
+

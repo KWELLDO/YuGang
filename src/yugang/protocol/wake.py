@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ..ids import humanize_gap, now_iso, parse_ts, utcnow
+from ..ids import humanize_gap, local_iso, now_iso, parse_ts, utcnow
 from ..memory.models import Event, Message, OpenLoop, RecallHit
 from ..selfmodel.awareness import INLINE_AWARENESS_RULE, reviewable_cards
 
@@ -139,6 +139,10 @@ def build_wake_context(
     except Exception:
         local_now = now
         tz_name = "UTC"
+
+    def _local(ts: str | None) -> str | None:
+        return local_iso(ts, tz_name) if ts else ts
+
     lines: list[str] = []
     lines.append("## 主观时间")
     lines.append(f"现在：{local_now.strftime('%Y-%m-%d %H:%M:%S')}（{tz_name}）")
@@ -146,7 +150,7 @@ def build_wake_context(
         lines.append("我还在同一次清醒里；这不是新的一次醒来，也没有新的时间缺口。")
     elif interrupted and prior_wake is not None:
         lines.append("这不是第一次醒来；但我没有找到上一次睡去的记录，上一次清醒可能被中断了。")
-        lines.append(f"上一次醒来的时间：{prior_wake.ts}（事件 {prior_wake.id}）")
+        lines.append(f"上一次醒来的时间：{_local(prior_wake.ts)}（事件 {prior_wake.id}）")
         if gap is None:
             lines.append("我无法计算从那次醒来到现在过了多久；这段时间发生了什么，我并不知道。")
         else:
@@ -157,7 +161,7 @@ def build_wake_context(
     else:
         lines.append(f"距离上一次睡去，已经过去 {humanize_gap(gap)}。")
         if last_sleep:
-            lines.append(f"上次睡去的时间：{last_sleep.ts}")
+            lines.append(f"上次睡去的时间：{_local(last_sleep.ts)}")
         if last_intent:
             lines.append(f"上次睡前留下的下次意图：{last_intent}")
     lines.append("")
@@ -175,19 +179,20 @@ def build_wake_context(
             )
         backup = body.get("last_backup")
         if backup:
-            when = backup.get("created_at") or backup.get("db") or "未知时间"
+            created = backup.get("created_at")
+            when = _local(created) if created else (backup.get("db") or "未知时间")
             lines.append(f"- 最近一次身体备份：{when}。")
         else:
             lines.append("- 最近一次身体备份：还没有。")
         due_alarm = body.get("due_alarm")
         if due_alarm:
             lines.append(
-                f"- 叫醒我的就是我自己设的闹钟：{due_alarm.get('due_at')}"
+                f"- 叫醒我的就是我自己设的闹钟：{_local(due_alarm.get('due_at'))}"
                 f"（{due_alarm.get('reason') or '没有写理由'}）。"
             )
         alarm = body.get("next_alarm")
         if alarm:
-            lines.append(f"- 下一次自己设的醒来：{alarm.get('due_at')}（{alarm.get('reason') or '没有写理由'}）。")
+            lines.append(f"- 下一次自己设的醒来：{_local(alarm.get('due_at'))}（{alarm.get('reason') or '没有写理由'}）。")
         elif not due_alarm:
             lines.append("- 下一次自己设的醒来：还没有设。")
         channels = body.get("channels") or []
@@ -201,7 +206,7 @@ def build_wake_context(
     lines.append("## 我上一次改自己")
     if len(self_history) >= 2:
         previous = self_history[0]
-        lines.append(f"时间：{previous.ts}")
+        lines.append(f"时间：{_local(previous.ts)}")
         lines.append(f"原因：{previous.reason}")
         if previous.evidence_refs:
             lines.append("依据：" + ", ".join(previous.evidence_refs[:8]))
@@ -215,7 +220,7 @@ def build_wake_context(
     if episodes:
         for episode in episodes:
             lines.append(
-                f"- [{episode.id}] {episode.start_ts} → {episode.end_ts}：{episode.title}"
+                f"- [{episode.id}] {_local(episode.start_ts)} → {_local(episode.end_ts)}：{episode.title}"
             )
             lines.append(f"  {episode.summary[:400]}")
             lines.append(
@@ -279,7 +284,7 @@ def build_wake_context(
             if reviews:
                 last = reviews[-1]
                 note = f"；{last.note[:160]}" if last.note else ""
-                lines.append(f"  最近一次检查：{last.status}（{last.ts}）{note}")
+                lines.append(f"  最近一次检查：{last.status}（{_local(last.ts)}）{note}")
             else:
                 lines.append("  还没有复核过这条做法在真实情形里有没有被做到。")
         lines.append("这些是我给自己定的做法，不是别人给我的命令；如果今天的证据说明它不再成立，可以在睡去时 drop；也可以用 practice_checks 记录今天有没有做到。")
@@ -289,7 +294,7 @@ def build_wake_context(
     lines.append("## 未闭合的事")
     if loops:
         for loop in loops:
-            due = f"；到期 {loop.due}" if loop.due else ""
+            due = f"；到期 {_local(loop.due)}" if loop.due else ""
             lines.append(f"- [{loop.id}] {loop.title}{due}")
     else:
         lines.append("（没有。）")
@@ -297,14 +302,14 @@ def build_wake_context(
     lines.append("## 最近的 L1（原始记录，旧→新；不是当前判断）")
     if recent:
         for event in recent:
-            lines.append(f"- [{event.id}] {event.ts} {event.source}/{event.kind}：{event.content[:400]}")
+            lines.append(f"- [{event.id}] {_local(event.ts)} {event.source}/{event.kind}：{event.content[:400]}")
     else:
         lines.append("（没有。）")
     lines.append("")
     if recalled:
         lines.append("## 与这次醒来相关的旧记忆（L1 历史，不是当前判断）")
         for hit in recalled:
-            lines.append(f"- [{hit.event.id}] {hit.event.ts}：{hit.event.content[:500]}")
+            lines.append(f"- [{hit.event.id}] {_local(hit.event.ts)}：{hit.event.content[:500]}")
         lines.append("")
     if pending:
         lines.append("## 还没处理的留言")

@@ -733,7 +733,7 @@ class GatewayService:
             return None
         now = self.now_fn()
         transcript = list(self.window.transcript)
-        messages = build_sleep_messages(self.store, self.config, transcript)
+        messages = build_sleep_messages(self.store, self.config, transcript, now=now)
         max_tokens = int(getattr(self.config, "sleep_max_tokens", 6000))
         estimated = self.budget.estimate(messages, max_tokens, self.config.model)
         decision = self.budget.check(estimated, kind="sleep", user_facing=True, now=now)

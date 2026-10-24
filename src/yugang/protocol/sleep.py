@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ..ids import now_iso, parse_ts, utcnow
+from ..ids import local_iso, now_iso, parse_ts, utcnow
 from ..selfmodel.awareness import reviewable_cards
 from ..selfmodel.self_md import append_change, apply_self_edits, validate_self, write_self_file
 
@@ -69,10 +69,25 @@ def _norm_practice(text: str) -> str:
     return "".join(ch for ch in (text or "").lower() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
 
 
-def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str]]) -> list[dict[str, str]]:
+def build_sleep_messages(
+    store: Any,
+    config: Any,
+    transcript: list[dict[str, str]],
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, str]]:
+    tz_name = getattr(config, "timezone", "Asia/Shanghai")
+    local_now = local_iso((now or utcnow()).isoformat(), tz_name)
+
+    def _local(ts: Any) -> Any:
+        return local_iso(str(ts), tz_name) if ts else ts
+
     events = store.events(limit=30, order="desc")
-    lines = [f"[{e.id}] {e.ts} {e.source}/{e.kind}: {e.content[:500]}" for e in reversed(events)]
-    loops = [f"- [{loop.id}] {loop.title} due={loop.due}" for loop in store.open_loops(limit=30)]
+    lines = [f"[{e.id}] {_local(e.ts)} {e.source}/{e.kind}: {e.content[:500]}" for e in reversed(events)]
+    loops = [
+        f"- [{loop.id}] {loop.title} due={_local(loop.due)}"
+        for loop in store.open_loops(limit=30)
+    ]
     cards = reviewable_cards(store, 20)
     card_lines = [
         f"- [{card.id}] trigger={card.trigger} hypothesis={card.hypothesis}\n"
@@ -85,11 +100,11 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
         reviews = store.practice_reviews(practice.id, limit=5)
         last = reviews[-1] if reviews else None
         line = (
-            f"- [{practice.id}] since={practice.ts} {practice.text}\n"
+            f"- [{practice.id}] since={_local(practice.ts)} {practice.text}\n"
             f"  evidence={', '.join(practice.evidence_refs)}"
         )
         if last is not None:
-            line += f"\n  last_check={last.status} at {last.ts}"
+            line += f"\n  last_check={last.status} at {_local(last.ts)}"
             if last.note:
                 line += f" note={last.note[:200]}"
         practice_lines.append(line)
@@ -117,7 +132,10 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
             f"{int(getattr(config, 'self_alarms_after_days', 7))} 天）。"
             "这次把 next_wake_minutes 设为 null；等开放后再由你决定。"
         )
-    prompt = f"""## 当前 SELF.md
+    prompt = f"""## 主观时间
+现在：{local_now}（{tz_name}）。所有时间都已换算到这个时区，带显式偏移；不要拿本地时间和 UTC 记录相减。
+
+## 当前 SELF.md
 {self_text}
 
 ## 最近 L1（旧→新）

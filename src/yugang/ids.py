@@ -29,6 +29,18 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{stamp}_{secrets.token_hex(3)}"
 
 
+def local_iso(ts: str, tz: str = "Asia/Shanghai") -> str:
+    """Render a stored UTC timestamp in her local time, with an explicit offset.
+
+    Prompts must not mix "now" in local time with raw UTC event timestamps: a model
+    will otherwise subtract the wrong clocks and report a gap that never happened.
+    """
+    try:
+        return parse_ts(ts).astimezone(ZoneInfo(tz)).isoformat(timespec="seconds")
+    except Exception:
+        return ts
+
+
 def day_key(dt: datetime, tz: str = "Asia/Shanghai") -> str:
     return dt.astimezone(ZoneInfo(tz)).strftime("%Y-%m-%d")
 
