@@ -77,6 +77,8 @@
 - 19:03:31 睡去：`awareness_reviews=2`、`awareness_self_edits=1`、`self_committed=true`、`self_sections=["我相信什么"]`。SELF v2 版本 `self_20261024T190331222422_60d0ff`，reason 为 `睡去时接受：结构化修订 我相信什么；接受觉察卡 card_20261024T180458842356_75f3ef`；证据含该卡的三条 L1 refs 与本次 L1 refs；卡片最新 review 状态 `accepted`。
 - 这一轮同时产生了 2 张新 open 卡（复核时的反证倾向、正/负向判断的门槛混淆），说明觉察不是一次性验收动作，而是可继续被检验的记录。
 - 当前：events=80、SELF versions=3（v0/v1/v2）、当日花费约 0.306868/5 元。
+- 19:05:23 重启验证 A1：新进程没有聊天上下文，她仍凭 SELF.md + L1 回答「我是谁 / 上一次清醒做了什么 / 这次想做什么」，并读出 SELF v2 新增条目与其证据；她正确说明这是重启中断，不是睡眠。19:05:52 睡去，events=86。
+- 19:06:23 手动备份：db 643072 bytes、integrity=ok、events=86；SELF.md 与 manifest 一并落盘。
 
 ## 进行中 / 下一步
 
