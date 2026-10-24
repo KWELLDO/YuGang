@@ -167,3 +167,61 @@ def test_daily_floor_uses_local_hour_not_utc(cfg, store):
     assert day_key(datetime.fromisoformat(wake.ts), cfg.timezone) == "2026-10-25"
     assert late_service.window.is_awake() is False
 
+
+
+def test_self_alarm_is_created_after_grace_and_clamped_by_range(store, cfg):
+    from yugang.protocol.sleep import SleepResult, apply_sleep_result
+
+    t0 = datetime(2026, 10, 25, 3, 0, tzinfo=timezone.utc)
+    cfg.self_alarms_enabled = True
+    cfg.self_alarms_after_days = 0
+    cfg.alarm_min_minutes = 30
+    cfg.alarm_max_minutes = 120
+    result = SleepResult(diary="我设一个闹钟。", next_wake_minutes=45, parsed=True)
+    applied = apply_sleep_result(store, cfg, result, now=t0)
+    assert applied["alarm"]
+    alarm = store.get_alarm(applied["alarm"])
+    assert alarm.status == "pending"
+    assert alarm.due_at.startswith("2026-10-25T03:45:00")
+    assert applied["next_wake_at"] == alarm.due_at
+
+    too_early = SleepResult(diary="太早了。", next_wake_minutes=5, parsed=True)
+    blocked = apply_sleep_result(store, cfg, too_early, now=t0 + timedelta(minutes=1))
+    assert blocked["alarm"] is None
+    assert blocked["alarm_blocked"] is True
+
+
+def test_self_alarm_is_blocked_during_the_first_week(store, cfg):
+    from yugang.protocol.sleep import SleepResult, apply_sleep_result
+
+    cfg.self_alarms_enabled = True
+    cfg.self_alarms_after_days = 7
+    result = SleepResult(diary="我想设闹钟。", next_wake_minutes=60, parsed=True)
+    applied = apply_sleep_result(store, cfg, result, now=datetime(2026, 10, 25, 3, 0, tzinfo=timezone.utc))
+    assert applied["alarm"] is None
+    assert applied["alarm_blocked"] is True
+
+
+def test_due_alarm_wakes_her_and_is_marked_fired(store, cfg):
+    from yugang.runtime.mock import ScriptedRuntime
+
+    t0 = datetime(2026, 10, 25, 4, 0, tzinfo=timezone.utc)
+    alarm = store.add_alarm(
+        (t0 - timedelta(minutes=1)).isoformat(timespec="microseconds"),
+        reason="她设的闹钟",
+        ts=(t0 - timedelta(hours=1)).isoformat(timespec="microseconds"),
+    )
+    sleep_json = (
+        '{"diary":"闹钟响过，我处理了那件事。","judgments":[],"stance":null,'
+        '"open_loops":[],"next_intent":null,"self_edits":[],"accept_self_edit":false,'
+        '"awareness_reviews":[],"next_wake_minutes":null}'
+    )
+    runtime = ScriptedRuntime(["我醒来处理了那件事。", sleep_json])
+    service = GatewayService(cfg, store, runtime, now_fn=lambda: t0)
+    assert service._maybe_fire_alarm(t0) is True
+    fired = store.get_alarm(alarm.id)
+    assert fired.status == "fired"
+    wakes = [e for e in store.events(limit=20) if e.kind == "wake"]
+    assert any(alarm.id in (e.content or "") for e in wakes)
+    assert any(e.kind == "observation" and "那件事" in e.content for e in store.events(limit=20))
+

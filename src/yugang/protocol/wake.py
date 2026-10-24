@@ -197,13 +197,20 @@ def build_messages(context: WakeContext, user_message: str) -> list[dict[str, st
     ]
 
 
-def morning_check_messages(context: WakeContext) -> list[dict[str, str]]:
+def morning_check_messages(context: WakeContext, reason: str = "每日保底") -> list[dict[str, str]]:
     system = WAKE_SYSTEM + "\n\n" + context.prompt
-    user = (
-        "现在是每日保底醒来。没有人在等你回消息。\n"
-        "读一遍记忆，判断：今天值不值得做一件事？如果值得，写一句你打算做什么；"
-        "如果不值得，就写一句你今天的状态。不要为了产出而产出。"
-    )
+    if "闹钟" in reason:
+        user = (
+            "这是你自己设的闹钟把你叫醒，没有人在等你回消息。\n"
+            "先确认现在是什么时间、上次睡去是什么时候；然后判断：你当时设这个闹钟是想做什么？"
+            "如果这件事还值得做，就做一点；如果不值得了，就写一句为什么。不要为了产出而产出。"
+        )
+    else:
+        user = (
+            "现在是每日保底醒来。没有人在等你回消息。\n"
+            "读一遍记忆，判断：今天值不值得做一件事？如果值得，写一句你打算做什么；"
+            "如果不值得，就写一句你今天的状态。不要为了产出而产出。"
+        )
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user},

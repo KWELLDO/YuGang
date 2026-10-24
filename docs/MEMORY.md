@@ -58,6 +58,22 @@ output as a `system/error` (not as a diary), retries once with a shorter schema,
 only then writes an honest failure diary. It never silently turns a broken JSON blob
 into her first-person memory.
 
+## Self-set wake alarms
+
+She may choose when to wake next during the sleep protocol
+(`next_wake_minutes`). This is deliberately gated:
+
+- disabled during the first `self_alarms_after_days` (default 7) lived days;
+- clamped to `alarm_min_minutes`–`alarm_max_minutes` (default 30–1560, i.e. 30 min–26 h);
+- at most `alarm_max_per_day` (default 6) alarms per local day;
+- an alarm that comes due while she is asleep wakes her before the daily floor;
+  the wake is a normal L1 `wake` event with reason `她设的闹钟 <alarm_id>`;
+- if the budget or runtime blocks the wake, the alarm is marked `missed` and
+  the failure is visible in L1 — it is not silently skipped.
+
+The alarm row is created by `apply_sleep_result` only after the sleep output has
+been parsed. A malformed sleep output cannot create an alarm.
+
 ## Recall
 
 Hybrid: FTS5 (trigram for Chinese) + recency + source/kind weights. Reading a memory is

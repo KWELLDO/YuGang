@@ -91,6 +91,13 @@ class Config:
     recall_limit: int = 6
     recent_event_limit: int = 16
 
+    # Self-set wake alarms. Disabled until she has enough lived days.
+    self_alarms_enabled: bool = True
+    self_alarms_after_days: int = 7
+    alarm_min_minutes: int = 30
+    alarm_max_minutes: int = 1560
+    alarm_max_per_day: int = 6
+
     http: HttpConfig = field(default_factory=HttpConfig)
     email: EmailConfig = field(default_factory=EmailConfig)
 

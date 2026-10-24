@@ -370,7 +370,21 @@ class GatewayService:
             if self.window.should_sleep(now):
                 self.sleep_window(reason="清醒窗口结束")
             return
+        if self._maybe_fire_alarm(now):
+            return
         self._maybe_daily_floor(now)
+
+    def _maybe_fire_alarm(self, now: datetime) -> bool:
+        due = self.store.due_alarms(now=now, limit=1)
+        if not due:
+            return False
+        alarm = due[0]
+        text = self.autonomous_wake(f"她设的闹钟 {alarm.id}")
+        if text:
+            self.store.mark_alarm(alarm.id, "fired", note=text[:300])
+        else:
+            self.store.mark_alarm(alarm.id, "missed", note="闹钟到点时没能醒来（预算/模型/运行时）")
+        return True
 
     def _maybe_daily_floor(self, now: datetime) -> None:
         today = day_key(now, getattr(self.config, "timezone", "Asia/Shanghai"))
@@ -399,7 +413,7 @@ class GatewayService:
         context = build_wake_context(
             self.store, self.config, query="", now=now, current_wake_id=wake_event.id, new_wake=True
         )
-        messages = morning_check_messages(context)
+        messages = morning_check_messages(context, reason=reason)
         estimated = self.budget.estimate(messages, int(getattr(self.config, "reply_max_tokens", 2000)), self.config.model)
         decision = self.budget.check(estimated, kind="autonomous", user_facing=False, now=now)
         if not decision.allowed:
@@ -545,9 +559,11 @@ class GatewayService:
     def status(self) -> dict[str, Any]:
         now = self.now_fn()
         summary = self.budget.summary(now)
+        pending_alarms = self.store.pending_alarms(limit=1)
         return {
             "name": self.config.name,
             "awake": self.window.is_awake(),
+            "next_alarm": _jsonable(pending_alarms[0]) if pending_alarms else None,
             "wake_remaining_seconds": round(self.window.remaining(now), 1),
             "wake_elapsed_seconds": round(self.window.elapsed(now), 1),
             "wake_count": self.window.wake_count,
@@ -569,6 +585,7 @@ class GatewayService:
             "self": self_text,
             "last_sleep": _jsonable(last_sleep) if last_sleep else None,
             "open_loops": _jsonable(self.store.open_loops(limit=20)),
+            "alarms": _jsonable(self.store.pending_alarms(limit=20)),
             "awareness": _jsonable(self.store.awareness_cards(limit=10)),
             "recent_events": _jsonable(self.store.events(limit=30)),
             "judgments": _jsonable(self.store.judgments(limit=10)),

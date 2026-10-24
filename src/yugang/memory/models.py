@@ -150,6 +150,33 @@ class AwarenessCard:
 
 
 @dataclass(frozen=True)
+class Alarm:
+    id: str
+    ts: str
+    due_at: str
+    reason: str | None
+    status: str
+    source_event: str | None
+    fired_event: str | None
+    note: str | None
+    updated_at: str
+
+    @classmethod
+    def from_row(cls, row: Any) -> "Alarm":
+        return cls(
+            id=row["id"],
+            ts=row["ts"],
+            due_at=row["due_at"],
+            reason=row["reason"],
+            status=row["status"],
+            source_event=row["source_event"],
+            fired_event=row["fired_event"],
+            note=row["note"],
+            updated_at=row["updated_at"],
+        )
+
+
+@dataclass(frozen=True)
 class OpenLoop:
     id: str
     ts: str

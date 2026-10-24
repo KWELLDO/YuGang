@@ -269,3 +269,14 @@ def test_email_reply_sets_loop_guard_headers(monkeypatch):
     assert sent[0]["X-YuGang-Reply"] == "1"
     assert sent[0]["Auto-Submitted"] == "auto-replied"
     assert sent[0]["Subject"] == "Re: hello"
+
+
+def test_parse_sleep_output_accepts_next_wake_minutes():
+    payload = {"diary": "我设了闹钟。", "next_wake_minutes": "90"}
+    result = parse_sleep_output(json.dumps(payload, ensure_ascii=False))
+    assert result.next_wake_minutes == 90
+    result2 = parse_sleep_output(json.dumps({"diary": "不设。", "next_wake_minutes": None}))
+    assert result2.next_wake_minutes is None
+    result3 = parse_sleep_output(json.dumps({"diary": "非法。", "next_wake_minutes": -5}))
+    assert result3.next_wake_minutes is None
+

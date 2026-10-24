@@ -100,6 +100,19 @@ CREATE TABLE IF NOT EXISTS awareness_reviews (
 );
 CREATE INDEX IF NOT EXISTS idx_ar_card ON awareness_reviews(card_id, ts);
 
+CREATE TABLE IF NOT EXISTS alarms (
+  id TEXT PRIMARY KEY,
+  ts TEXT NOT NULL,
+  due_at TEXT NOT NULL,
+  reason TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  source_event TEXT,
+  fired_event TEXT,
+  note TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_alarms_due ON alarms(status, due_at);
+
 CREATE TABLE IF NOT EXISTS open_loops (
   id TEXT PRIMARY KEY,
   ts TEXT NOT NULL,

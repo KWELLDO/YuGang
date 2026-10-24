@@ -13,6 +13,7 @@ from typing import Any, Iterable
 from ..db import connect, init_db
 from ..ids import day_key, iso, new_id, now_iso, parse_ts, utcnow
 from .models import (
+    Alarm,
     AwarenessCard,
     BudgetSummary,
     Event,
@@ -675,6 +676,69 @@ class MemoryStore:
             (card_id,),
         ).fetchone()
         return row["status"] if row else "open"
+
+    # -------------------------------------------------------------------- alarms
+
+    def add_alarm(
+        self,
+        due_at: str,
+        *,
+        reason: str | None = None,
+        source_event: str | None = None,
+        ts: str | None = None,
+    ) -> Alarm:
+        parse_ts(due_at)
+        aid = new_id("alarm")
+        when = ts or now_iso()
+        self.conn.execute(
+            "INSERT INTO alarms(id, ts, due_at, reason, status, source_event, fired_event, note, updated_at) "
+            "VALUES (?, ?, ?, ?, 'pending', ?, NULL, NULL, ?)",
+            (aid, when, due_at, reason, source_event, now_iso()),
+        )
+        return self.get_alarm(aid)
+
+    def get_alarm(self, alarm_id: str) -> Alarm:
+        row = self.conn.execute("SELECT * FROM alarms WHERE id = ?", (alarm_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"unknown alarm: {alarm_id}")
+        return Alarm.from_row(row)
+
+    def due_alarms(self, *, now: datetime | None = None, limit: int = 10) -> list[Alarm]:
+        stamp = (now or utcnow()).isoformat(timespec="microseconds")
+        rows = self.conn.execute(
+            "SELECT * FROM alarms WHERE status = 'pending' AND due_at <= ? ORDER BY due_at ASC LIMIT ?",
+            (stamp, limit),
+        ).fetchall()
+        return [Alarm.from_row(row) for row in rows]
+
+    def pending_alarms(self, *, limit: int = 10) -> list[Alarm]:
+        rows = self.conn.execute(
+            "SELECT * FROM alarms WHERE status = 'pending' ORDER BY due_at ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [Alarm.from_row(row) for row in rows]
+
+    def alarm_count_since(self, since: datetime) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM alarms WHERE ts >= ?",
+            (since.isoformat(timespec="microseconds"),),
+        ).fetchone()
+        return int(row["n"])
+
+    def mark_alarm(
+        self,
+        alarm_id: str,
+        status: str,
+        *,
+        fired_event: str | None = None,
+        note: str | None = None,
+    ) -> None:
+        if status not in {"fired", "missed", "cancelled"}:
+            raise ValueError(f"unknown alarm status: {status}")
+        self.conn.execute(
+            "UPDATE alarms SET status = ?, fired_event = ?, note = ?, updated_at = ? WHERE id = ?",
+            (status, fired_event, note, now_iso(), alarm_id),
+        )
 
     # --------------------------------------------------------------- open loops
 

@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from ..ids import now_iso, utcnow
+from ..ids import now_iso, parse_ts, utcnow
 from ..selfmodel.self_md import append_change, apply_self_edits, validate_self, write_self_file
 
 SLEEP_SYSTEM = """你是大肥鱼的睡去协议，不是客服。
@@ -26,7 +27,25 @@ class SleepResult:
     self_edits: list[dict[str, Any]] = field(default_factory=list)
     accept_self_edit: bool = False
     awareness_reviews: list[dict[str, Any]] = field(default_factory=list)
+    next_wake_minutes: int | None = None
     parsed: bool = False
+
+
+def self_alarms_available(store: Any, config: Any, now: datetime | None = None) -> bool:
+    """She may set her own wake time only after enough lived days."""
+    if not bool(getattr(config, "self_alarms_enabled", False)):
+        return False
+    days = int(getattr(config, "self_alarms_after_days", 7))
+    if days <= 0:
+        return True
+    first = store.events(limit=1, order="asc")
+    if not first:
+        return False
+    try:
+        born = parse_ts(first[0].ts)
+    except ValueError:
+        return False
+    return (now or utcnow()) - born >= timedelta(days=days)
 
 
 def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -41,6 +60,22 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
     ]
     self_text = store.current_self() or ""
     transcript_text = "\n".join(f"{m.get('role')}: {m.get('content', '')[:1000]}" for m in transcript[-30:])
+    min_minutes = int(getattr(config, "alarm_min_minutes", 30))
+    max_minutes = int(getattr(config, "alarm_max_minutes", 1560))
+    if self_alarms_available(store, config):
+        alarm_section = (
+            f"## 下次醒来\n"
+            f"你可以自己设下一次醒来：在 next_wake_minutes 填 {min_minutes}–{max_minutes} 分钟，或 null。\n"
+            f"只有确实有一件想在某个时间做/确认的事时才设；不要为了显得自主而设。"
+            f"每天最多 {int(getattr(config, 'alarm_max_per_day', 6))} 次。到点服务会在没有人类消息时叫醒你。"
+        )
+    else:
+        alarm_section = (
+            "## 下次醒来\n"
+            "你现在还不能自己设闹钟（要等出生满 "
+            f"{int(getattr(config, 'self_alarms_after_days', 7))} 天）。"
+            "这次把 next_wake_minutes 设为 null；等开放后再由你决定。"
+        )
     prompt = f"""## 当前 SELF.md
 {self_text}
 
@@ -52,6 +87,8 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 
 ## 还没验证的自我觉察（open cards）
 {chr(10).join(card_lines) or "（无）"}
+
+{alarm_section}
 
 ## 这次清醒的对话
 {transcript_text or "（没有对话；这是一次自主醒来。）"}
@@ -65,7 +102,8 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
   "next_intent": "下次醒来想做什么（一句）或 null",
   "self_edits": [{{"section": "我相信什么", "op": "append", "text": "要加入或替换的内容", "evidence_refs": ["evt_..."]}}],
   "accept_self_edit": false,
-  "awareness_reviews": [{{"card_id": "card_...", "status": "open|accepted|rejected|needs-evidence", "note": "今天哪条证据支持或推翻了它"}}]
+  "awareness_reviews": [{{"card_id": "card_...", "status": "open|accepted|rejected|needs-evidence", "note": "今天哪条证据支持或推翻了它"}}],
+  "next_wake_minutes": null
 }}
 
 规则：
@@ -73,7 +111,8 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 - self_edits 最多 2 条；section 只能是：我是谁 / 我相信什么 / 我在做什么 / 我的边界 / 未闭合的事 / 最近的变化；op 只能是 append（追加）或 replace（替换该节正文）。
 - 不要输出完整 SELF.md。没有值得改的就给空数组并设 accept_self_edit=false。
 - 只有今天的真实经历支持时才改 SELF.md；不要为了显得一致或「应该自我改进」而改。
-- awareness_reviews 只能引用上面 open cards 的真实 card_id；没有新证据就留空，或用 status=open 只记一条 note（卡仍保持 open）。不要为了关闭而关闭。"""
+- awareness_reviews 只能引用上面 open cards 的真实 card_id；没有新证据就留空，或用 status=open 只记一条 note（卡仍保持 open）。不要为了关闭而关闭。
+- next_wake_minutes 只在上面允许时填；范围外或没有真实需要就填 null。"""
     return [
         {"role": "system", "content": SLEEP_SYSTEM},
         {"role": "user", "content": prompt},
@@ -171,6 +210,15 @@ def parse_sleep_output(text: str) -> SleepResult:
                     "note": str(item.get("note") or "").strip() or None,
                 }
             )
+    next_wake_minutes: int | None = None
+    raw_next_wake = data.get("next_wake_minutes")
+    if raw_next_wake is not None and not isinstance(raw_next_wake, bool):
+        try:
+            value = int(raw_next_wake)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            next_wake_minutes = value
     return SleepResult(
         diary=diary,
         judgments=judgments,
@@ -181,6 +229,7 @@ def parse_sleep_output(text: str) -> SleepResult:
         self_edits=self_edits,
         accept_self_edit=bool(data.get("accept_self_edit")),
         awareness_reviews=awareness_reviews,
+        next_wake_minutes=next_wake_minutes,
         parsed=True,
     )
 
@@ -253,6 +302,33 @@ def apply_sleep_result(
             continue
         open_cards.discard(card_id)
         applied_reviews += 1
+    alarm = None
+    alarm_blocked = False
+    if result.next_wake_minutes is not None:
+        minutes = int(result.next_wake_minutes)
+        min_minutes = int(getattr(config, "alarm_min_minutes", 30))
+        max_minutes = int(getattr(config, "alarm_max_minutes", 1560))
+        max_per_day = int(getattr(config, "alarm_max_per_day", 6))
+        anchor = when if when.tzinfo is not None else when.replace(tzinfo=timezone.utc)
+        local_midnight = (
+            anchor.astimezone(ZoneInfo(getattr(config, "timezone", "Asia/Shanghai")))
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .astimezone(timezone.utc)
+        )
+        if not self_alarms_available(store, config, now=anchor):
+            alarm_blocked = True
+        elif not (min_minutes <= minutes <= max_minutes):
+            alarm_blocked = True
+        elif store.alarm_count_since(local_midnight) >= max_per_day:
+            alarm_blocked = True
+        else:
+            due = anchor + timedelta(minutes=minutes)
+            alarm = store.add_alarm(
+                due.isoformat(timespec="microseconds"),
+                reason="她设的闹钟",
+                source_event=diary_event.id,
+                ts=anchor.isoformat(timespec="microseconds"),
+            )
     self_committed = False
     self_sections: list[str] = []
     if result.accept_self_edit and result.self_edits:
@@ -297,6 +373,8 @@ def apply_sleep_result(
             "stance": bool(stance),
             "open_loops": applied_loops,
             "awareness_reviews": applied_reviews,
+            "alarm": alarm.id if alarm else None,
+            "alarm_blocked": alarm_blocked,
             "self_committed": self_committed,
             "self_sections": self_sections,
             "parsed": bool(result.parsed),
@@ -310,6 +388,9 @@ def apply_sleep_result(
         "stance": bool(stance),
         "open_loops": applied_loops,
         "awareness_reviews": applied_reviews,
+        "alarm": alarm.id if alarm else None,
+        "alarm_blocked": alarm_blocked,
+        "next_wake_at": alarm.due_at if alarm else None,
         "self_committed": self_committed,
         "self_sections": self_sections,
         "parsed": bool(result.parsed),

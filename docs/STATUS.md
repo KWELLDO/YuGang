@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 02:44 CST（Asia/Shanghai）
+更新时间：2026-10-25 02:52 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -56,10 +56,19 @@
 - 02:41:56 睡去（diary `evt_20261024T184156600270_c51fa9`，sleep `evt_20261024T184156625828_ce14d5`）：`awareness_reviews=5`、`judgments=2`、`stance=true`、`parsed=true`、SELF 未改。5 张卡全部以 `status=open` 记录了 note，没有为了“有数字”而关闭任何一张。
 - 当前：events=67、awake=false、budget 0.23414/5 元（chat 0.121488 + sleep 0.112652）、channels=[http,email]。
 
+### 自己的醒来闹钟（02:50 CST，代码完成并部署）
+
+- 睡去协议现在允许她在 `next_wake_minutes` 里决定下一次自己什么时候醒；但出生头 7 天不开放，默认 `self_alarms_enabled=true`、`self_alarms_after_days=7`。以第一次事件（2026-10-24T16:30:02Z）计算，开放时间约为 2026-10-31T16:30Z（2026-11-01 00:30 CST）。
+- 范围 30–1560 分钟（30 分钟–26 小时），每天最多 6 次；范围外/超次数会拒绝并在 sleep 结果里记 `alarm_blocked=true`，不会偷偷截断。
+- 闹钟到点且她仍睡着时，`idle_tick` 先于每日保底触发 `autonomous_wake("她设的闹钟 <id>")`；醒来 prompt 会明确说“这是你自己设的闹钟”。成功标记 `fired`，预算/运行时失败标记 `missed` 并在 L1 留痕。
+- 测试：`test_self_alarm_is_created_after_grace_and_clamped_by_range`、`test_self_alarm_is_blocked_during_the_first_week`、`test_due_alarm_wakes_her_and_is_marked_fired`、`test_parse_sleep_output_accepts_next_wake_minutes`；全量 **50 passed**。
+- 已部署到云端并重启；`/status` 新增 `next_alarm`（当前 null），`/tank` 新增 `alarms`。云端 events=67、awake=false、budget 0.23414/5 元。
+
 ## 进行中 / 下一步
 
 - 把 DSH 接成她的推理运行时（目前 3199 只是运维控制台，不参与她的唤醒/记忆写入）。
-- 邮件通道闭环与部署后的完整睡醒闭环已验证；下一步清理历史重复的 open loop，并把“她自己设闹钟/无人提示时先读记忆”做成可执行机制。
+- 自己的醒来闹钟已做成可执行机制，等出生满 7 天后（2026-11-01 00:30 CST 左右）观察她第一次实际使用；接下来验证“无人提示时先读记忆”。
+- 清理历史重复的 open loop（两条同名“检验 given 主张”）。
 - IM 通道：微信/QQ 需要公网回调或非官方桥，尚未接入。
 - 私有网络：目前是 SSH 隧道；Tailscale/WireGuard 还需要手机端安装与授权。
 - 更长的连续运行观察：跨日预算、异常/重启后的恢复、觉察卡进入唤醒上下文。
