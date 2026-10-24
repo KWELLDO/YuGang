@@ -43,13 +43,23 @@ def extract_text(message: Message) -> str:
     return payload.decode(charset, errors="replace").strip()
 
 
-def parse_email_bytes(raw: bytes) -> dict[str, str]:
+def parse_email_bytes(raw: bytes) -> dict[str, str | bool]:
     message = email.message_from_bytes(raw)
     sender = parseaddr(_decode_header(message.get("From")))[1]
     subject = _decode_header(message.get("Subject"))
     message_id = (message.get("Message-ID") or "").strip()
     body = extract_text(message)
-    return {"sender": sender, "subject": subject, "body": body, "message_id": message_id}
+    auto_submitted = str(message.get("Auto-Submitted") or "").strip().lower()
+    auto_reply = bool(message.get("X-YuGang-Reply")) or (
+        bool(auto_submitted) and auto_submitted != "no"
+    )
+    return {
+        "sender": sender,
+        "subject": subject,
+        "body": body,
+        "message_id": message_id,
+        "auto_reply": auto_reply,
+    }
 
 
 class EmailChannel:
@@ -87,6 +97,28 @@ class EmailChannel:
                 pass
             self._stop.wait(interval)
 
+    def _unseen_numbers(self, imap: Any) -> list[bytes]:
+        senders = [
+            str(sender).strip()
+            for sender in (getattr(self.config, "allow_senders", None) or [])
+            if str(sender).strip()
+        ]
+        # Do not use server-side SUBJECT search for the tag: as soon as the
+        # subject contains a non-ASCII character (which is normal here), the
+        # whole header is RFC 2047 encoded and the literal tag no longer
+        # appears in the raw bytes. Search by sender, fetch headers, decode,
+        # then apply the tag filter locally.
+        base: list[str] = ["UNSEEN"]
+        if not senders:
+            status, data = imap.search(None, *base)
+            return list(data[0].split()) if status == "OK" and data and data[0] else []
+        numbers: set[bytes] = set()
+        for sender in senders:
+            status, data = imap.search(None, *base, "FROM", f'"{sender}"')
+            if status == "OK" and data and data[0]:
+                numbers.update(data[0].split())
+        return sorted(numbers, key=lambda value: int(value))
+
     def poll_once(self) -> int:
         if not self.password:
             return 0
@@ -94,32 +126,53 @@ class EmailChannel:
         try:
             imap.login(self.config.username, self.password)
             imap.select(self.config.folder or "INBOX")
-            status, data = imap.search(None, "UNSEEN")
-            if status != "OK":
-                return 0
+            allowed = {
+                str(sender).strip().lower()
+                for sender in (getattr(self.config, "allow_senders", None) or [])
+                if str(sender).strip()
+            }
             count = 0
-            for num in data[0].split()[:20]:
-                status, fetched = imap.fetch(num, "(RFC822)")
-                if status != "OK" or not fetched:
+            for num in self._unseen_numbers(imap)[:20]:
+                # Fetch the header first. This mailbox also contains a human's
+                # personal mail; we do not want to pull every old body on every
+                # poll just to discover that it has no tag.
+                status, fetched = imap.fetch(num, "(BODY.PEEK[HEADER])")
+                if status != "OK" or not fetched or not isinstance(fetched[0], tuple):
                     continue
-                raw = fetched[0][1]
-                parsed = parse_email_bytes(raw)
-                if not parsed["body"]:
+                header = parse_email_bytes(fetched[0][1])
+                sender = str(header["sender"] or "")
+                # Never touch a stranger's unread flag. Only mail from an
+                # allowed sender, or our own auto-reply, may be marked seen.
+                if header["auto_reply"]:
                     imap.store(num, "+FLAGS", "\\Seen")
                     continue
-                allowed = self.config.allow_senders
-                if allowed and parsed["sender"] not in allowed:
+                tag = str(getattr(self.config, "subject_tag", "") or "").strip()
+                if tag and tag not in str(header["subject"] or ""):
+                    # This mailbox is also a human inbox. A tag is the only
+                    # thing that turns a message into a message for her.
+                    continue
+                if allowed and sender.lower() not in allowed:
+                    continue
+                status, fetched = imap.fetch(num, "(RFC822)")
+                if status != "OK" or not fetched or not isinstance(fetched[0], tuple):
+                    continue
+                parsed = parse_email_bytes(fetched[0][1])
+                if not parsed["body"]:
                     imap.store(num, "+FLAGS", "\\Seen")
                     continue
                 incoming = IncomingMessage(
                     channel="email",
-                    content=parsed["body"],
-                    sender=parsed["sender"],
-                    external_id=parsed["message_id"] or f"imap-{num.decode()}",
-                    meta={"subject": parsed["subject"]},
+                    content=str(parsed["body"]),
+                    sender=sender,
+                    external_id=str(parsed["message_id"] or f"imap-{num.decode()}"),
+                    meta={"subject": str(parsed["subject"] or "")},
                 )
-                if self.on_message is not None:
-                    self.on_message(incoming)
+                try:
+                    if self.on_message is not None:
+                        self.on_message(incoming)
+                except Exception:
+                    # Leave it unread so the next poll can retry it.
+                    continue
                 imap.store(num, "+FLAGS", "\\Seen")
                 count += 1
             return count
@@ -137,6 +190,10 @@ class EmailChannel:
         message["To"] = recipient
         subject = (meta or {}).get("subject") or "来自大肥鱼"
         message["Subject"] = subject
+        # RFC 3834 plus a private marker: the poller must never answer its own
+        # reply and create a mail loop when the sender and mailbox are the same.
+        message["Auto-Submitted"] = "auto-replied"
+        message["X-YuGang-Reply"] = "1"
         message.set_content(content)
         try:
             if int(self.config.smtp_port) == 465:

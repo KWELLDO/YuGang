@@ -51,6 +51,7 @@ class EmailConfig:
     password_env: str = "YUGANG_EMAIL_PASSWORD"
     folder: str = "INBOX"
     allow_senders: list[str] = field(default_factory=list)
+    subject_tag: str = ""
     poll_seconds: int = 60
 
 

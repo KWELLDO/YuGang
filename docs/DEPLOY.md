@@ -87,11 +87,52 @@ The token is in `/etc/dafeiyu-dsh.env` on the host. The page reads it once, stor
 - Autonomous activity reserves the user budget (`user_reserve_cny`).
 - Budget or model failure is fail-loud: the message is marked failed and a system reply is recorded.
 
+## Email channel
+
+The gateway can read one mailbox over IMAP and reply over SMTP. The mailbox is also a
+human inbox, so the channel is deliberately narrow:
+
+- the subject must contain the tag `[YuGang]` (checked after decoding the header; a
+  non-ASCII subject is RFC 2047 encoded, so server-side IMAP subject search is not used);
+- the sender must be in `allow_senders`;
+- untagged mail is header-peeked only: its body is not downloaded and its unread flag is
+  never cleared;
+- replies carry `Auto-Submitted: auto-replied` and `X-YuGang-Reply: 1`, and the poller
+  skips its own replies so it cannot loop;
+- an untagged message is not a message for her, even if it comes from an allowed address.
+
+Config in `/home/dafeiyu/.yugang/config.json`:
+
+```json
+{
+  "email": {
+    "enabled": true,
+    "imap_host": "imap.qq.com",
+    "imap_port": 993,
+    "smtp_host": "smtp.qq.com",
+    "smtp_port": 465,
+    "username": "you@example.com",
+    "password_env": "YUGANG_EMAIL_PASSWORD",
+    "folder": "INBOX",
+    "allow_senders": ["you@example.com"],
+    "subject_tag": "[YuGang]",
+    "poll_seconds": 60
+  }
+}
+```
+
+Put the password/app-password in `/etc/dafeiyu-dsh.env` as `YUGANG_EMAIL_PASSWORD`
+(root-only, mode 0600). To test without changing unread state, run a single poll from the
+host with the same credentials and check that `polled` is 0 when no tagged mail exists.
+
+Send a test message to the mailbox with a subject like `[YuGang] 我来看你了`; her reply
+goes back to the same thread.
+
 ## Private-network options
 
 1. **SSH tunnel** (works today, no new dependency).
 2. **Tailscale/WireGuard** (better for phone; no public inbound port).
-3. **Mail** (poll IMAP; requires a dedicated mailbox and credentials).
+3. **Mail** (works today; subject tag `[YuGang]`, allow-listed sender only).
 
 Public `ayu.*` DNS/nginx exposure is intentionally not used in v1.
 

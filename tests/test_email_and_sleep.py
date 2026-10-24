@@ -126,3 +126,128 @@ def test_parse_sleep_output_accepts_add_as_append_alias():
     }
     result = parse_sleep_output(json.dumps(payload, ensure_ascii=False))
     assert result.self_edits[0]["op"] == "append"
+
+
+def _raw_mail(sender: str, subject: str, body: str, message_id: str, *, auto_reply: bool = False) -> bytes:
+    headers = [
+        f"From: {sender}",
+        "To: ayu@example.com",
+        f"Subject: {subject}",
+        f"Message-ID: <{message_id}>",
+        "MIME-Version: 1.0",
+        "Content-Type: text/plain; charset=utf-8",
+    ]
+    if auto_reply:
+        headers.extend(["Auto-Submitted: auto-replied", "X-YuGang-Reply: 1"])
+    return ("\r\n".join(headers) + "\r\n\r\n" + body + "\r\n").encode("utf-8")
+
+
+def test_email_channel_never_marks_a_stranger_read_and_skips_its_own_reply(monkeypatch):
+    import yugang.gateway.channels.email as email_module
+
+    monkeypatch.setenv("TEST_YUGANG_EMAIL_PW", "pw")
+    messages = {
+        b"1": _raw_mail("kwelldo@example.com", "[YuGang] hello", "from the allowed sender", "allowed-1"),
+        b"2": _raw_mail("stranger@example.com", "[YuGang] spam", "do not touch my unread flag", "stranger-1"),
+        b"3": _raw_mail(
+            "kwelldo@example.com", "Re: [YuGang] hello", "this is YuGang's own reply", "auto-1", auto_reply=True
+        ),
+        b"4": _raw_mail("kwelldo@example.com", "old personal mail", "not tagged for her", "old-1"),
+    }
+    stores: list[tuple[bytes, str]] = []
+    searches: list[tuple[str, ...]] = []
+    fetches: list[tuple[bytes, str]] = []
+
+    class FakeIMAP:
+        def __init__(self, host, port):
+            self.host = host
+
+        def login(self, username, password):
+            assert password == "pw"
+            return "OK", []
+
+        def select(self, folder):
+            return "OK", [b"1"]
+
+        def search(self, charset, *criteria):
+            searches.append(tuple(str(item) for item in criteria))
+            return "OK", [b"1 2 3 4"]
+
+        def fetch(self, num, spec):
+            fetches.append((num, spec))
+            return "OK", [(b"1 (RFC822)", messages[num])]
+
+        def store(self, num, flag, value):
+            stores.append((num, value))
+            return "OK", []
+
+        def logout(self):
+            return "BYE", []
+
+    monkeypatch.setattr(email_module.imaplib, "IMAP4_SSL", FakeIMAP)
+    received = []
+    email_config = EmailConfig(
+        enabled=True,
+        imap_host="imap.example.com",
+        smtp_host="smtp.example.com",
+        username="ayu@example.com",
+        password_env="TEST_YUGANG_EMAIL_PW",
+        allow_senders=["kwelldo@example.com"],
+        subject_tag="[YuGang]",
+    )
+    channel = EmailChannel(email_config)
+    channel.on_message = received.append
+    assert channel.poll_once() == 1
+    assert [item.content for item in received] == ["from the allowed sender"]
+    assert (b"1", "\\Seen") in stores
+    assert (b"3", "\\Seen") in stores
+    assert (b"2", "\\Seen") not in stores
+    assert (b"4", "\\Seen") not in stores
+    assert any("FROM" in criteria for criteria in searches)
+    # The tag must be checked after decoding the subject, not by IMAP search:
+    # a non-ASCII subject is RFC 2047 encoded and hides the literal tag.
+    assert not any("SUBJECT" in criteria for criteria in searches)
+    # An untagged allowed-sender message is header-peeked only; its body is
+    # never downloaded and its unread flag is never cleared.
+    assert (b"4", "(BODY.PEEK[HEADER])") in fetches
+    assert not any(num == b"4" and spec == "(RFC822)" for num, spec in fetches)
+
+
+def test_email_reply_sets_loop_guard_headers(monkeypatch):
+    import yugang.gateway.channels.email as email_module
+
+    monkeypatch.setenv("TEST_YUGANG_EMAIL_PW", "pw")
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=30):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def login(self, username, password):
+            return None
+
+        def send_message(self, message):
+            sent.append(message)
+
+        def quit(self):
+            return None
+
+    monkeypatch.setattr(email_module.smtplib, "SMTP_SSL", FakeSMTP)
+    email_config = EmailConfig(
+        enabled=True,
+        smtp_host="smtp.example.com",
+        smtp_port=465,
+        username="1144820556@qq.com",
+        password_env="TEST_YUGANG_EMAIL_PW",
+        allow_senders=["kwelldo@example.com"],
+    )
+    channel = EmailChannel(email_config)
+    assert channel.send("kwelldo@example.com", "你好", meta={"subject": "hello"}) is True
+    assert sent[0]["X-YuGang-Reply"] == "1"
+    assert sent[0]["Auto-Submitted"] == "auto-replied"
