@@ -76,6 +76,8 @@ class Config:
     base_url: str = "https://api.deepseek.com"
     api_key_env: str = "DEEPSEEK_API_KEY"
     request_timeout_seconds: int = 90
+    reply_max_tokens: int = 2000
+    sleep_max_tokens: int = 6000
 
     # Budget (CNY per local day).
     daily_budget_cny: float = 5.0

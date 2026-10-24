@@ -76,6 +76,7 @@ class OpenAICompatRuntime:
         if not choices:
             raise RuntimeError(f"model returned no choices: {body[:400]}")
         message = choices[0].get("message") or {}
+        finish_reason = str(choices[0].get("finish_reason") or "")
         text = message.get("content") or ""
         if not isinstance(text, str) or not text.strip():
             raise RuntimeError(f"model returned empty content: {body[:400]}")
@@ -86,5 +87,6 @@ class OpenAICompatRuntime:
             input_tokens=int(usage.get("prompt_tokens") or estimate_tokens(prompt_text)),
             output_tokens=int(usage.get("completion_tokens") or estimate_tokens(text)),
             model=str(parsed.get("model") or self.model),
+            finish_reason=finish_reason,
             raw=parsed,
         )

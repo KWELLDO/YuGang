@@ -209,7 +209,7 @@ class GatewayService:
             )
             self.window.touch(now)
         messages = build_messages(context, incoming.content)
-        max_tokens = int(getattr(self.config, "reply_max_tokens", 900))
+        max_tokens = int(getattr(self.config, "reply_max_tokens", 2000))
         estimated = self.budget.estimate(messages, max_tokens, self.config.model)
         decision = self.budget.check(estimated, kind="chat", user_facing=True, now=now)
         if not decision.allowed:
@@ -387,7 +387,7 @@ class GatewayService:
             self.store, self.config, query="", now=now, current_wake_id=wake_event.id, new_wake=True
         )
         messages = morning_check_messages(context)
-        estimated = self.budget.estimate(messages, int(getattr(self.config, "reply_max_tokens", 900)), self.config.model)
+        estimated = self.budget.estimate(messages, int(getattr(self.config, "reply_max_tokens", 2000)), self.config.model)
         decision = self.budget.check(estimated, kind="autonomous", user_facing=False, now=now)
         if not decision.allowed:
             self.store.append_event("system", "note", f"自主醒来被预算拦下：{decision.reason}", meta={"reason": reason})
@@ -396,7 +396,7 @@ class GatewayService:
         try:
             if self.runtime is None:
                 raise RuntimeError("runtime is not configured")
-            completion = self.runtime.complete(messages, max_tokens=int(getattr(self.config, "reply_max_tokens", 900)))
+            completion = self.runtime.complete(messages, max_tokens=int(getattr(self.config, "reply_max_tokens", 2000)))
         except Exception as exc:
             self.store.append_event("system", "error", f"自主醒来失败：{type(exc).__name__}: {exc}")
             self._end_wake()
@@ -424,12 +424,14 @@ class GatewayService:
         now = self.now_fn()
         transcript = list(self.window.transcript)
         messages = build_sleep_messages(self.store, self.config, transcript)
-        estimated = self.budget.estimate(messages, int(getattr(self.config, "sleep_max_tokens", 1200)), self.config.model)
+        max_tokens = int(getattr(self.config, "sleep_max_tokens", 6000))
+        estimated = self.budget.estimate(messages, max_tokens, self.config.model)
         decision = self.budget.check(estimated, kind="sleep", user_facing=True, now=now)
         if not decision.allowed:
             result = SleepResult(
                 diary=f"（这次睡去没有调用模型：{decision.reason}。清醒窗口结束，材料仍在 L1。）",
                 next_intent=None,
+                parsed=False,
             )
             applied = apply_sleep_result(self.store, self.config, result, transcript=transcript, now=now)
             self._end_wake()
@@ -437,20 +439,90 @@ class GatewayService:
         try:
             if self.runtime is None:
                 raise RuntimeError("runtime is not configured")
-            completion = self.runtime.complete(messages, max_tokens=int(getattr(self.config, "sleep_max_tokens", 1200)))
+            completion = self.runtime.complete(messages, max_tokens=max_tokens)
         except Exception as exc:
-            result = SleepResult(diary=f"（这次睡去没有完成模型整理：{type(exc).__name__}: {exc}。材料仍在 L1。）")
+            result = SleepResult(
+                diary=f"（这次睡去没有完成模型整理：{type(exc).__name__}: {exc}。材料仍在 L1。）",
+                parsed=False,
+            )
             applied = apply_sleep_result(self.store, self.config, result, transcript=transcript, now=now)
             self._end_wake()
             return applied
         self.budget.record_completion(completion, kind="sleep", now=now)
         result = parse_sleep_output(completion.text or "")
+        finish_reason = str(getattr(completion, "finish_reason", "") or "")
+        retried = False
+        if not result.parsed:
+            raw = (completion.text or "")[:4000]
+            self.store.append_event(
+                "system",
+                "error",
+                f"睡去整理输出无法解析（finish_reason={finish_reason or 'unknown'}）；将用更短约束重试一次。",
+                meta={"stage": "sleep_parse", "finish_reason": finish_reason, "raw": raw},
+                ts=now.isoformat(timespec="microseconds"),
+            )
+            retry_messages = messages + [
+                {"role": "assistant", "content": (completion.text or "")[:6000]},
+                {
+                    "role": "user",
+                    "content": (
+                        "上面的整理没有形成完整 JSON。请重新输出一个更短、完整的 JSON："
+                        "diary 不超过 300 字；judgments 最多 2 条；open_loops 最多 1 条；"
+                        "stance 与 next_intent 各一句；self_edits 最多 1 条且只用 append。"
+                        "不要解释，不要输出完整 SELF.md。"
+                    ),
+                },
+            ]
+            retry_estimate = self.budget.estimate(
+                retry_messages, min(max_tokens, 4000), self.config.model
+            )
+            retry_decision = self.budget.check(
+                retry_estimate, kind="sleep", user_facing=True, now=now
+            )
+            if retry_decision.allowed:
+                try:
+                    completion = self.runtime.complete(
+                        retry_messages, max_tokens=min(max_tokens, 4000)
+                    )
+                    self.budget.record_completion(completion, kind="sleep", now=now)
+                    result = parse_sleep_output(completion.text or "")
+                    finish_reason = str(getattr(completion, "finish_reason", "") or "")
+                    retried = True
+                except Exception as exc:
+                    self.store.append_event(
+                        "system",
+                        "error",
+                        f"睡去整理重试失败：{type(exc).__name__}: {exc}",
+                        ts=now.isoformat(timespec="microseconds"),
+                    )
+            else:
+                self.store.append_event(
+                    "system",
+                    "note",
+                    f"睡去整理重试被预算拦下：{retry_decision.reason}",
+                    ts=now.isoformat(timespec="microseconds"),
+                )
+        if not result.parsed:
+            result = SleepResult(
+                diary=(
+                    "（这次睡去没有形成可解析的整理；原始输出已作为 system/error 留在 L1，材料仍在。"
+                    "这不是一次体验，是整理失败。）"
+                ),
+                next_intent=None,
+                parsed=False,
+            )
         applied = apply_sleep_result(self.store, self.config, result, transcript=transcript, now=now)
         self.store.append_event(
             "system",
             "note",
             f"清醒窗口结束：{reason}",
-            meta={"applied": applied, "turns": len(transcript)},
+            meta={
+                "applied": applied,
+                "turns": len(transcript),
+                "parsed": bool(result.parsed),
+                "retried": retried,
+                "finish_reason": finish_reason,
+            },
             ts=now.isoformat(timespec="microseconds"),
         )
         self._end_wake()

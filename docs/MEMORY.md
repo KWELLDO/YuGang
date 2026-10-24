@@ -39,6 +39,25 @@ model-supplied evidence ids. A malformed card is dropped with an audit note, not
 Open cards are included in the next wake context so they can be tested by later experience;
 a card can be reviewed as accepted, rejected, or needs-evidence.
 
+## SELF edits
+
+A sleep run does not hand over a complete new SELF.md. It may propose at most two
+structured edits:
+
+    {"section": "我相信什么", "op": "append", "text": "…", "evidence_refs": ["evt_…"]}
+
+`section` must be one of the six canonical sections, `op` is `append` or `replace`,
+and every edit must cite at least one L1 event that actually exists. The program
+applies the edits itself, rejects unknown sections / operations / fake refs, records
+the resulting diff and evidence ids in a new SELF version, and leaves an HTML
+`<!-- evidence: … -->` comment in the changed section. A full-document `self_edit`
+is still accepted for older callers, but is no longer requested from the model.
+
+If the sleep output is truncated or not valid JSON, the gateway first records the raw
+output as a `system/error` (not as a diary), retries once with a shorter schema, and
+only then writes an honest failure diary. It never silently turns a broken JSON blob
+into her first-person memory.
+
 ## Recall
 
 Hybrid: FTS5 (trigram for Chinese) + recency + source/kind weights. Reading a memory is

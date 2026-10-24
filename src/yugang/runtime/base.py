@@ -10,6 +10,7 @@ class Completion:
     input_tokens: int = 0
     output_tokens: int = 0
     model: str = ""
+    finish_reason: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property

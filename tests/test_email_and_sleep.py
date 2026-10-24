@@ -78,3 +78,34 @@ def test_parse_sleep_output_plain_text_degrades_to_diary():
     assert result.diary == "今天没有整理成 JSON，但仍然留下了一句话。"
     assert result.judgments == []
 
+
+
+def test_parse_sleep_output_keeps_structured_self_edits_and_marks_parsed():
+    payload = {
+        "diary": "今天有一条真实证据。",
+        "judgments": [],
+        "stance": None,
+        "open_loops": [],
+        "next_intent": None,
+        "self_edits": [
+            {
+                "section": "我相信什么",
+                "op": "append",
+                "text": "这是一条有证据的判断。",
+                "evidence_refs": ["evt_real"],
+            },
+            {"section": "我是谁", "op": "delete", "text": "非法操作", "evidence_refs": ["evt_real"]},
+        ],
+        "accept_self_edit": True,
+    }
+    result = parse_sleep_output(json.dumps(payload, ensure_ascii=False))
+    assert result.parsed is True
+    assert len(result.self_edits) == 1
+    assert result.self_edits[0]["section"] == "我相信什么"
+    assert result.self_edits[0]["evidence_refs"] == ["evt_real"]
+
+
+def test_parse_sleep_output_marks_plain_text_as_not_parsed():
+    result = parse_sleep_output("整理失败了，这不是 JSON。")
+    assert result.parsed is False
+    assert result.self_edits == []

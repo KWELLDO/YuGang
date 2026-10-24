@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 01:57 CST（Asia/Shanghai）
+更新时间：2026-10-25 02:03 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -16,7 +16,7 @@
 
 ## 已验证
 
-- 自动化测试：33 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、觉察卡证据、睡眠应用与未闭合事项去重、预算闸门、HTTP 鉴权、鱼缸页、邮件解析、同窗口续聊语义、崩溃恢复、备份完整性与 manifest）。
+- 自动化测试：39 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件解析、同窗口续聊语义、崩溃恢复、备份完整性与 manifest）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -29,7 +29,8 @@
 - 崩溃恢复与备份：进程在回复前退出时，重启会按原 message/event id 重新入队且不重复写 L1；每日备份多次运行成功（256K、events=22、chain_ok=true、db_integrity=ok），快照为单文件、权限 0600、目录 0700。
 - DSH 运维控制台：以真实 key 做 headless 验证（只回答「控制台可用。」），3199 无 token 返回 401，带 token 可打开 DSH Web；控制台共用 key，但其模型花费不进入她的 5 元日预算。
 - 控制台工具链：DSH 的工具 shell 不继承 `YUGANG_HTTP_TOKEN`，因此新增 dafeiyu 可读的 `~/.yugang/http-token`（0600）与 `install-token.sh`；`tank.sh`/`status.sh`/`say.sh` 在 env 缺失时读该文件。已重新安装脚本，并在无 env 的情况下用真实 DSH headless 跑 `status.sh`，得到 awake=false、event_count=22。
-- 账单：截至 01:08，当日花费 0.038868 元 / 5 元。
+- 睡去输出截断事故（01:56 CST）：手动 `/sleep` 时模型输出在 `self_edit` 的完整 SELF.md 中途被 1200 token 截断，旧代码把原始 JSON 当日记写入，judgments/stance/open_loops/SELF 都没有应用。已修复：`reply_max_tokens=2000`、`sleep_max_tokens=6000`；`Completion.finish_reason`；`SleepResult.parsed`；解析失败时先写 system/error 保留原始输出，再用短约束重试一次，仍失败则写诚实失败日记，绝不把原始 JSON 当日记。SELF 修订改为 `self_edits` 结构化操作（section/op/text/evidence_refs），程序校验章节、op、真实证据后应用。
+- 账单：截至 01:08，当日花费 0.038868 元 / 5 元；01:56 的手动睡去另计。
 
 ## 进行中 / 下一步
 

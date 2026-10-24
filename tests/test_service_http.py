@@ -127,6 +127,27 @@ def _request(port, method, path, body=None, token=None):
     connection.close()
     return response.status, json.loads(raw.decode("utf-8"))
 
+def test_operator_can_end_a_wake_window_through_the_http_sleep_endpoint(running):
+    service, store, _cfg = running
+    channel = HttpChannel("127.0.0.1", 0, token="s3cret")
+    channel.bind(service)
+    channel.start(service.handle_incoming)
+    port = channel._server.server_address[1]
+    try:
+        status, _payload = _request(port, "POST", "/sleep", {}, token="s3cret")
+        assert status == 409
+        service.chat("先醒来", timeout=10)
+        assert service.window.is_awake() is True
+        status, payload = _request(port, "POST", "/sleep", {"reason": "test"}, token="s3cret")
+        assert status == 200
+        assert payload["ok"] is True
+        assert payload["sleep"]["diary_event"]
+        assert service.window.is_awake() is False
+        assert store.latest_event("sleep") is not None
+    finally:
+        channel.stop()
+
+
 def test_fish_tank_page_requires_token_and_speaks_html(running):
     service, _store, _cfg = running
     channel = HttpChannel("127.0.0.1", 0, token="s3cret")
@@ -187,6 +208,75 @@ def test_startup_recovers_message_left_processing(tmp_path):
             if e.kind == "message" and e.content == "上次崩溃时没回的消息"
         ]
         assert len(copies) == 1
+    finally:
+        service.stop()
+        store.close()
+
+def test_sleep_retries_once_when_output_is_truncated(tmp_path):
+    from yugang.runtime.mock import ScriptedRuntime
+
+    cfg = Config.default(str(tmp_path / "ayu"))
+    cfg.model = "mock"
+    store = MemoryStore(cfg.db_path)
+    runtime = ScriptedRuntime(
+        [
+            "收到。",
+            '{"diary": "被截断的整理',
+            json.dumps(
+                {
+                    "diary": "重试后形成了一段完整的日记。",
+                    "judgments": [
+                        {
+                            "claim": "我会在整理失败后重试一次。",
+                            "falsifier": "如果重试也没有发生，则被推翻。",
+                            "evidence_refs": ["PLACEHOLDER"],
+                            "confidence": 0.5,
+                        }
+                    ],
+                    "open_loops": [],
+                    "next_intent": None,
+                    "self_edits": [],
+                    "accept_self_edit": False,
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+    service = GatewayService(cfg, store, runtime)
+    service.start()
+    try:
+        service.chat("今天说一句话", timeout=10)
+        evidence = next(e for e in store.events(limit=20) if e.kind == "message")
+        runtime._replies[-1] = runtime._replies[-1].replace("PLACEHOLDER", evidence.id)
+        applied = service.sleep_window(reason="测试截断重试")
+        assert applied is not None
+        assert applied["parsed"] is True
+        assert applied["judgments"] == 1
+        parse_errors = [e for e in store.events(limit=30) if e.meta.get("stage") == "sleep_parse"]
+        assert parse_errors
+        assert len(runtime.calls) == 3
+    finally:
+        service.stop()
+        store.close()
+
+
+def test_sleep_fails_loudly_and_never_stores_raw_json_as_diary(tmp_path):
+    from yugang.runtime.mock import ScriptedRuntime
+
+    cfg = Config.default(str(tmp_path / "ayu"))
+    cfg.model = "mock"
+    store = MemoryStore(cfg.db_path)
+    service = GatewayService(cfg, store, ScriptedRuntime(["收到。", '{"diary": "截断', "仍然不是 JSON"]))
+    service.start()
+    try:
+        service.chat("这次整理会失败", timeout=10)
+        applied = service.sleep_window(reason="测试失败")
+        assert applied is not None
+        assert applied["parsed"] is False
+        diary = store.latest_event("diary")
+        assert diary is not None
+        assert "没有形成可解析的整理" in diary.content
+        assert not diary.content.lstrip().startswith("{")
     finally:
         service.stop()
         store.close()

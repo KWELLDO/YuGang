@@ -7,7 +7,7 @@ import pytest
 from yugang.config import DEFAULT_SELF_TEMPLATE
 from yugang.protocol.sleep import SleepResult, apply_sleep_result
 from yugang.selfmodel.awareness import create_card
-from yugang.selfmodel.self_md import validate_self
+from yugang.selfmodel.self_md import get_section, validate_self
 
 
 def test_l1_hash_chain_and_tamper_detection(store):
@@ -221,3 +221,46 @@ def test_duplicate_external_message_is_idempotent(store):
     assert second.id == first.id
     assert second_event.id == first_event.id
     assert store.event_count() == count
+
+
+def test_structured_self_edits_are_auditable_and_require_real_evidence(store, cfg):
+    evidence = store.append_event("human", "message", "你上次说会在醒来时先读 SELF.md")
+    before = store.current_self()
+    result = SleepResult(
+        diary="今天有一次真实的核对，可以改两处很小的东西。",
+        self_edits=[
+            {
+                "section": "我相信什么",
+                "op": "append",
+                "text": "我能在记录层面区分中断与睡去，这靠 L1，不靠体验连续。",
+                "evidence_refs": [evidence.id],
+            },
+            {
+                "section": "我在做什么",
+                "op": "replace",
+                "text": "- 正在核对 L1 与 SELF.md 的差异。",
+                "evidence_refs": [evidence.id],
+            },
+            {
+                "section": "我的边界",
+                "op": "append",
+                "text": "这条使用假证据，不应被应用。",
+                "evidence_refs": ["evt_fake"],
+            },
+        ],
+        accept_self_edit=True,
+        parsed=True,
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    after = store.current_self()
+
+    assert applied["self_committed"] is True
+    assert applied["self_sections"] == ["我相信什么", "我在做什么"]
+    assert "（还没有被我的经历检验过的判断。）" not in after
+    assert "记录层面区分中断与睡去" in (get_section(after, "我相信什么") or "")
+    assert "还在核对" not in before
+    assert "正在核对 L1" in (get_section(after, "我在做什么") or "")
+    assert "这条使用假证据" not in after
+    assert "<!-- evidence: " + evidence.id in after
+    latest = store.self_history()[0]
+    assert evidence.id in latest.evidence_refs

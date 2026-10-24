@@ -70,7 +70,7 @@ def validate_self(text: str) -> list[str]:
 
 
 def replace_section(text: str, name: str, body: str) -> str:
-    pattern = re.compile(rf"^##\s+{re.escape(name)}(?:\s+.*)?$", re.MULTILINE)
+    pattern = re.compile(rf"^##\s+{re.escape(name)}(?:\s+.*|（[^）]*）)?$", re.MULTILINE)
     match = pattern.search(text or "")
     if not match:
         return (text.rstrip() + "\n\n## " + name + "\n\n" + body.strip() + "\n").lstrip()
@@ -90,6 +90,87 @@ def append_change(text: str, change: str, limit: int = 10) -> str:
     bullets = [f"- {change}"] + [b for b in bullets if b.strip() not in {"- （还没有。）", "- (空。)"}]
     body = "\n".join(bullets[:limit]) or "- （还没有。）"
     return replace_section(text, "最近的变化", body)
+
+
+_EVIDENCE_COMMENT = re.compile(r"^<!--\s*evidence:\s*(.*?)\s*-->\s*$", re.MULTILINE)
+_PLACEHOLDER_LINE = re.compile(r"^-\s*（[^）]*(?:还没有|空)[^）]*）\s*$")
+
+
+def _canonical_section(name: Any) -> str | None:
+    value = str(name or "").strip()
+    for canonical in CANONICAL_SECTIONS:
+        if value == canonical or value.startswith(canonical):
+            return canonical
+    return None
+
+
+def _evidence_refs(body: str) -> list[str]:
+    refs: list[str] = []
+    for match in _EVIDENCE_COMMENT.finditer(body or ""):
+        refs.extend(part for part in re.split(r"[,，\s]+", match.group(1)) if part)
+    return list(dict.fromkeys(refs))
+
+
+def _strip_evidence(body: str) -> str:
+    return _EVIDENCE_COMMENT.sub("", body or "").strip()
+
+
+def apply_self_edits(
+    text: str,
+    edits: list[dict[str, Any]],
+    *,
+    ref_exists: Any | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Apply small, auditable SELF.md edits instead of accepting a whole document.
+
+    Each edit targets one canonical section and must cite at least one real L1
+    event. The evidence ids are kept in an HTML comment, so the edit remains
+    traceable after later rewrites. Invalid edits are skipped rather than
+    producing a partial or fabricated self-model.
+    """
+    current = text
+    applied: list[dict[str, Any]] = []
+    for edit in edits or []:
+        if not isinstance(edit, dict):
+            continue
+        section = _canonical_section(edit.get("section"))
+        op = str(edit.get("op") or "").strip().lower()
+        content = str(edit.get("text") or "").strip()
+        if not section or op not in {"append", "replace"} or not content:
+            continue
+        refs = [str(ref).strip() for ref in (edit.get("evidence_refs") or []) if str(ref).strip()]
+        if ref_exists is not None:
+            refs = [ref for ref in refs if ref_exists(ref)]
+        refs = list(dict.fromkeys(refs))
+        if not refs:
+            continue
+        body = get_section(current, section) or ""
+        previous_refs = _evidence_refs(body)
+        body = _strip_evidence(body)
+        if op == "replace":
+            new_body = content
+            merged_refs = refs
+        else:
+            body = "\n".join(
+                line for line in body.splitlines() if not _PLACEHOLDER_LINE.match(line.strip())
+            ).strip()
+            bullet = content if content.lstrip().startswith("-") else "- " + content
+            new_body = (body + "\n" + bullet).strip() if body else bullet
+            merged_refs = list(dict.fromkeys(previous_refs + refs))
+        new_body = new_body + "\n\n<!-- evidence: " + ", ".join(merged_refs) + " -->"
+        candidate = replace_section(current, section, new_body)
+        if validate_self(candidate):
+            continue
+        current = candidate
+        applied.append(
+            {
+                "section": section,
+                "op": op,
+                "text": content,
+                "evidence_refs": merged_refs,
+            }
+        )
+    return current, applied
 
 
 def render_self(name: str, sections: dict[str, str], *, preamble: str = "") -> str:

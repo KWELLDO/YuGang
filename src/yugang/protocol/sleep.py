@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from ..ids import now_iso, utcnow
-from ..selfmodel.self_md import append_change, validate_self, write_self_file
+from ..selfmodel.self_md import append_change, apply_self_edits, validate_self, write_self_file
 
 SLEEP_SYSTEM = """你是大肥鱼的睡去协议，不是客服。
 你不是在体验睡眠；你是在结束一次清醒前，把今天的材料整理成明天的自己。
@@ -23,7 +23,9 @@ class SleepResult:
     open_loops: list[dict[str, Any]] = field(default_factory=list)
     next_intent: str | None = None
     self_edit: str | None = None
+    self_edits: list[dict[str, Any]] = field(default_factory=list)
     accept_self_edit: bool = False
+    parsed: bool = False
 
 
 def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -51,14 +53,15 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
   "stance": "一句当前立场（薄，不写人设）或 null",
   "open_loops": [{{"title": "...", "detail": "...", "due": null}}],
   "next_intent": "下次醒来想做什么（一句）或 null",
-  "self_edit": "如果要修改 SELF.md，给出修改后的完整 SELF.md 文本；否则 null",
+  "self_edits": [{{"section": "我相信什么", "op": "append", "text": "要加入或替换的内容", "evidence_refs": ["evt_..."]}}],
   "accept_self_edit": false
 }}
 
 规则：
 - evidence_refs 必须是上面真实出现的事件 id；没有证据的判断不要写。
-- self_edit 可以用于：用今天的证据支持一项新主张、填充 SELF.md 的空章节、或修订被你今天的经历推翻的旧主张。有证据支持时设 accept_self_edit=true；否则 null/false。
-- 每条改动都应能追溯到上面的真实 L1 事件 id；不要为了显得一致或「应该自我改进」而改 SELF.md。"""
+- self_edits 最多 2 条；section 只能是：我是谁 / 我相信什么 / 我在做什么 / 我的边界 / 未闭合的事 / 最近的变化；op 只能是 append（追加）或 replace（替换该节正文）。
+- 不要输出完整 SELF.md。没有值得改的就给空数组并设 accept_self_edit=false。
+- 只有今天的真实经历支持时才改 SELF.md；不要为了显得一致或「应该自我改进」而改。"""
     return [
         {"role": "system", "content": SLEEP_SYSTEM},
         {"role": "user", "content": prompt},
@@ -84,7 +87,10 @@ def _extract_json(text: str) -> dict[str, Any] | None:
 def parse_sleep_output(text: str) -> SleepResult:
     data = _extract_json(text)
     if not data:
-        return SleepResult(diary=(text or "").strip() or "（这次睡去没有留下日记。）")
+        return SleepResult(
+            diary=(text or "").strip() or "（这次睡去没有留下日记。）",
+            parsed=False,
+        )
     diary = str(data.get("diary") or "").strip() or "（这次睡去没有留下日记。）"
     judgments: list[dict[str, Any]] = []
     for item in data.get("judgments") or []:
@@ -111,6 +117,28 @@ def parse_sleep_output(text: str) -> SleepResult:
     self_edit = data.get("self_edit")
     if self_edit is not None:
         self_edit = str(self_edit).strip() or None
+    self_edits: list[dict[str, Any]] = []
+    raw_edits = data.get("self_edits")
+    if isinstance(raw_edits, list):
+        for item in raw_edits:
+            if not isinstance(item, dict):
+                continue
+            section = str(item.get("section") or "").strip()
+            op = str(item.get("op") or "").strip().lower()
+            text_value = str(item.get("text") or "").strip()
+            refs = item.get("evidence_refs")
+            if not section or op not in {"append", "replace"} or not text_value:
+                continue
+            if not isinstance(refs, list) or not refs:
+                continue
+            self_edits.append(
+                {
+                    "section": section,
+                    "op": op,
+                    "text": text_value,
+                    "evidence_refs": [str(ref) for ref in refs],
+                }
+            )
     return SleepResult(
         diary=diary,
         judgments=judgments,
@@ -118,7 +146,9 @@ def parse_sleep_output(text: str) -> SleepResult:
         open_loops=loops,
         next_intent=(str(data.get("next_intent")).strip() if data.get("next_intent") else None),
         self_edit=self_edit,
+        self_edits=self_edits,
         accept_self_edit=bool(data.get("accept_self_edit")),
+        parsed=True,
     )
 
 
@@ -179,7 +209,28 @@ def apply_sleep_result(
         except (ValueError, TypeError):
             continue
     self_committed = False
-    if result.accept_self_edit and result.self_edit and not validate_self(result.self_edit):
+    self_sections: list[str] = []
+    if result.accept_self_edit and result.self_edits:
+        base_self = store.current_self() or ""
+        new_self, applied_edits = apply_self_edits(
+            base_self,
+            result.self_edits,
+            ref_exists=store.ref_exists,
+        )
+        if applied_edits and new_self != base_self:
+            self_sections = [edit["section"] for edit in applied_edits]
+            edit_refs = [ref for edit in applied_edits for ref in edit["evidence_refs"]]
+            store.commit_self(
+                new_self,
+                "睡去时接受：结构化修订 " + "、".join(self_sections),
+                list(dict.fromkeys(self_refs + edit_refs)),
+                accepted_by="ayu",
+                ts=now_iso() if now is None else when.isoformat(timespec="microseconds"),
+            )
+            write_self_file(config, new_self)
+            self_committed = True
+    elif result.accept_self_edit and result.self_edit and not validate_self(result.self_edit):
+        self_sections = ["full-document"]
         store.commit_self(
             result.self_edit,
             "睡去时接受：SELF.md 被今天的证据修订",
@@ -201,6 +252,8 @@ def apply_sleep_result(
             "stance": bool(stance),
             "open_loops": applied_loops,
             "self_committed": self_committed,
+            "self_sections": self_sections,
+            "parsed": bool(result.parsed),
         },
         refs=[diary_event.id],
     )
@@ -211,4 +264,6 @@ def apply_sleep_result(
         "stance": bool(stance),
         "open_loops": applied_loops,
         "self_committed": self_committed,
+        "self_sections": self_sections,
+        "parsed": bool(result.parsed),
     }

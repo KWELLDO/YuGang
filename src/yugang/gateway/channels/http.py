@@ -255,7 +255,8 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
-        if urlsplit(self.path).path != "/message":
+        path = urlsplit(self.path).path
+        if path not in ("/message", "/sleep"):
             self._json(404, {"error": "not found"})
             return
         if not self._authorized():
@@ -267,6 +268,13 @@ class _Handler(BaseHTTPRequestHandler):
             payload = json.loads(raw or "{}")
         except (ValueError, UnicodeDecodeError):
             self._json(400, {"error": "invalid JSON"})
+            return
+        if path == "/sleep":
+            if not self.channel.service.window.is_awake():
+                self._json(409, {"error": "not awake"})
+                return
+            applied = self.channel.service.sleep_window(reason=str(payload.get("reason") or "operator"))
+            self._json(200 if applied else 503, {"ok": bool(applied), "sleep": applied})
             return
         content = str(payload.get("content") or "").strip()
         if not content:

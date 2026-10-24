@@ -51,6 +51,8 @@ curl -fsS -X POST http://127.0.0.1:3198/message \
 
 `POST /message` waits for her reply, so a sleeping process still answers: the request is stored in L1 first, then it wakes her.
 
+Operators can end the current window immediately with an authenticated `POST /sleep` (body optional: `{"reason":"..."}`). It runs the same sleep protocol in the live process and returns the applied result; normal sleep still happens on the idle window. This endpoint is for deployment checks and manual consolidation, not for her.
+
 A small client wraps this so a phone/laptop only needs the existing SSH access:
 
 ```bash
