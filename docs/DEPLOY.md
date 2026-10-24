@@ -62,6 +62,21 @@ echo "排队时想到的一句话" | ./scripts/yugang-remote.sh
 
 It reads `YUGANG_HTTP_TOKEN` from the host-side root-only env file and never exposes the port. Set `YUGANG_SSH_HOST` if the SSH alias is not `dsh-online`.
 
+## Fish tank UI
+
+The gateway also serves a mobile-first read/write page at `/`. It shows whether she is
+awake or asleep, the last sleep, recent conversation, SELF.md, open loops, awareness
+cards, recent events and budget. The message box calls the same `POST /message` path, so
+sending a message wakes her even while she is asleep.
+
+With the SSH tunnel above open, visit:
+
+    http://127.0.0.1:3198/?token=<YUGANG_HTTP_TOKEN>
+
+The token is in `/etc/dafeiyu-dsh.env` on the host. The page reads it once, stores it in
+`sessionStorage`, and removes it from the address bar. Without a token the page returns
+401. The page makes no external requests and has no external assets.
+
 ## Wake semantics
 
 - The gateway is always on; the model is not.

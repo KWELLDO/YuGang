@@ -1,12 +1,189 @@
 from __future__ import annotations
 
+import hmac
 import json
 import threading
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
+from urllib.parse import parse_qs, urlsplit
 
 from .base import IncomingMessage
+
+
+_PAGE = """<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>鱼缸 · YuGang</title>
+<style>
+:root { color-scheme: dark; --bg:#08131a; --panel:#0e2029; --line:#1e3a45; --ink:#d8edf2; --dim:#7fa3ad; --accent:#6fd3e0; --warm:#f0b46a; }
+* { box-sizing: border-box; }
+body { margin:0; background:radial-gradient(1200px 600px at 50% -10%, #12313d 0%, var(--bg) 55%); color:var(--ink); font:16px/1.55 -apple-system,BlinkMacSystemFont,"Noto Sans SC","PingFang SC",sans-serif; min-height:100vh; }
+main { max-width:760px; margin:0 auto; padding:20px 16px 40px; }
+header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:14px; }
+h1 { font-size:22px; margin:0; letter-spacing:.08em; font-weight:600; }
+h1 small { color:var(--dim); font-size:12px; letter-spacing:.18em; margin-left:8px; font-weight:400; }
+.pill { font-size:13px; padding:4px 10px; border-radius:999px; border:1px solid var(--line); color:var(--dim); white-space:nowrap; }
+.pill.awake { color:#0b1a1f; background:var(--accent); border-color:var(--accent); }
+.card { background:linear-gradient(180deg, rgba(18,42,52,.9), rgba(12,28,36,.9)); border:1px solid var(--line); border-radius:14px; padding:14px 15px; margin:12px 0; }
+.card h2 { font-size:12px; letter-spacing:.16em; color:var(--dim); margin:0 0 8px; font-weight:500; text-transform:uppercase; }
+.muted { color:var(--dim); font-size:14px; }
+.status-line { font-size:15px; }
+.big { font-size:18px; line-height:1.6; }
+pre { white-space:pre-wrap; word-break:break-word; font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; margin:0; color:#c9e6eb; }
+.chat { display:flex; flex-direction:column; gap:8px; max-height:44vh; overflow:auto; padding-right:2px; }
+.bubble { border:1px solid var(--line); border-radius:12px; padding:8px 11px; max-width:88%; }
+.bubble.me { align-self:flex-end; background:#16323d; border-color:#28505e; }
+.bubble.her { align-self:flex-start; background:#0b1b22; }
+.bubble .who { display:block; font-size:11px; color:var(--dim); margin-bottom:3px; letter-spacing:.08em; }
+.bubble .text { white-space:pre-wrap; word-break:break-word; }
+form { display:flex; gap:8px; margin-top:12px; }
+textarea { flex:1; min-height:48px; max-height:140px; resize:vertical; background:#071217; color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font:inherit; }
+button { background:var(--accent); color:#06151a; border:0; border-radius:10px; padding:0 18px; font-weight:600; font-size:15px; }
+button:disabled { opacity:.45; }
+.row { display:flex; gap:10px; flex-wrap:wrap; }
+.row .card { flex:1 1 220px; }
+details summary { cursor:pointer; color:var(--dim); font-size:13px; }
+a { color:var(--accent); }
+.foot { color:var(--dim); font-size:12px; margin-top:18px; text-align:center; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>鱼缸<small>YUGANG</small></h1>
+  <span id="pill" class="pill">连接中</span>
+</header>
+
+<section class="card">
+  <h2>此刻</h2>
+  <div id="now" class="big">正在读取她的状态…</div>
+  <div id="sleep-note" class="muted" style="margin-top:6px"></div>
+</section>
+
+<section class="card">
+  <h2>说话</h2>
+  <div id="chat" class="chat"></div>
+  <form id="form">
+    <textarea id="text" placeholder="写点什么。发出去会叫醒她。" maxlength="8000"></textarea>
+    <button id="send" type="submit">发送</button>
+  </form>
+  <div id="send-note" class="muted" style="margin-top:6px">她睡着时发消息也会立刻醒来；醒来需要几秒到一分钟。</div>
+</section>
+
+<div class="row">
+  <section class="card">
+    <h2>她是谁</h2>
+    <pre id="self">—</pre>
+  </section>
+  <section class="card">
+    <h2>未闭合</h2>
+    <div id="loops" class="muted">—</div>
+  </section>
+</div>
+
+<section class="card">
+  <h2>最近发生</h2>
+  <div id="events" class="muted">—</div>
+</section>
+
+<details class="card">
+  <summary>预算与统计</summary>
+  <pre id="stats" style="margin-top:10px">—</pre>
+</details>
+
+<div class="foot">身体在线，意识按需。私有实例，仅本机监听。</div>
+</main>
+<script>
+const params = new URLSearchParams(location.search);
+const incoming = params.get('token');
+let token = incoming || sessionStorage.getItem('yg_token') || '';
+if (incoming) {
+  sessionStorage.setItem('yg_token', incoming);
+  history.replaceState({}, '', location.pathname);
+}
+const $ = (id) => document.getElementById(id);
+function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const r = await fetch(path, Object.assign({}, opts, { headers }));
+  if (r.status === 401) throw new Error('unauthorized');
+  return r.json();
+}
+function fmt(ts) { if (!ts) return ''; const d = new Date(ts); return isNaN(d) ? ts : d.toLocaleString('zh-CN', { hour12:false }); }
+function renderChat(events) {
+  const box = $('chat'); box.replaceChildren();
+  const rows = events.filter(e => ['message','reply','observation'].includes(e.kind)).slice(0, 14).reverse();
+  if (!rows.length) { box.append(el('div','muted','还没有对话。')); return; }
+  for (const e of rows) {
+    const mine = e.kind === 'message';
+    const b = el('div', 'bubble ' + (mine ? 'me' : 'her'));
+    b.append(el('span','who', mine ? '你' : (e.actor || '她')));
+    b.append(el('div','text', e.content || ''));
+    box.append(b);
+  }
+  box.scrollTop = box.scrollHeight;
+}
+function renderLoops(loops) {
+  const box = $('loops'); box.replaceChildren();
+  if (!loops || !loops.length) { box.textContent = '没有未闭合的事。'; return; }
+  for (const l of loops) box.append(el('div','', '· ' + l.title));
+}
+async function refresh() {
+  try {
+    const t = await api('/tank');
+    const s = t.status || {};
+    const pill = $('pill');
+    pill.textContent = s.awake ? '醒着' : '睡着';
+    pill.className = 'pill' + (s.awake ? ' awake' : '');
+    const mins = s.awake ? Math.max(0, Math.round((s.wake_remaining_seconds || 0) / 60)) : 0;
+    $('now').textContent = s.awake
+      ? '她醒着。这次清醒还剩约 ' + mins + ' 分钟，之后会自然睡去。'
+      : '她睡着了。身体还在，闹钟和邮件轮询也在；你发消息会立刻叫醒她。';
+    const ls = t.last_sleep;
+    $('sleep-note').textContent = ls && ls.content ? '上一次睡去：' + fmt(ls.ts) + '。' + (ls.content.length > 160 ? ls.content.slice(0,160) + '…' : ls.content) : '还没有睡去记录。';
+    $('self').textContent = t.self || '（SELF.md 还没有内容）';
+    renderLoops(t.open_loops);
+    renderChat(t.recent_events || []);
+    const ev = (t.recent_events || []).slice(0, 10).map(e => fmt(e.ts) + '  ' + e.kind + '  ' + String(e.content || '').slice(0,90));
+    $('events').replaceChildren(...(ev.length ? ev.map(x => el('div','',x)) : [el('div','muted','还没有事件。')]));
+    $('stats').textContent = JSON.stringify({ events: s.event_count, awake: s.awake, budget: s.budget, stage: s.budget_stage }, null, 2);
+  } catch (err) {
+    $('pill').textContent = err.message === 'unauthorized' ? '需要 token' : '断开';
+    $('pill').className = 'pill';
+    $('now').textContent = err.message === 'unauthorized'
+      ? '这个页面需要访问 token。用带 ?token=… 的地址打开一次，之后会记住。'
+      : '连不上网关。她可能正在重启。';
+  }
+}
+$('form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const text = $('text').value.trim();
+  if (!text) return;
+  $('send').disabled = true; $('send').textContent = '…';
+  $('send-note').textContent = '她正在读。最多等三分钟。';
+  try {
+    const data = await api('/message', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ content:text, id:'web-' + Date.now() }) });
+    if (data.reply) { $('text').value = ''; $('send-note').textContent = '已回复。'; }
+    else { $('send-note').textContent = data.error || '这次没有回复，稍后再试。'; }
+  } catch (err) {
+    $('send-note').textContent = err.message === 'unauthorized' ? 'token 不对或已失效。' : '发送失败：' + err.message;
+  } finally {
+    $('send').disabled = false; $('send').textContent = '发送';
+    refresh();
+  }
+});
+refresh();
+setInterval(refresh, 8000);
+</script>
+</body>
+</html>
+"""
+
+_TOKEN_PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>鱼缸</title><body style="background:#08131a;color:#d8edf2;font-family:sans-serif;padding:2rem"><h1>需要 token</h1><p>用 <code>/?token=…</code> 打开这个页面。</p></body>"""
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -28,33 +205,57 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _authorized(self) -> bool:
+    def _authorized(self, *, query_token: str | None = None) -> bool:
         token = self.channel.token
         if not token:
             return True
+        if query_token is not None and hmac.compare_digest(query_token, token):
+            return True
         header = self.headers.get("Authorization", "")
-        return header == f"Bearer {token}"
+        return hmac.compare_digest(header, f"Bearer {token}")
+
+    def _html(self, status: int, page: str) -> None:
+        body = page.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_GET(self) -> None:
-        if self.path == "/health":
+        parts = urlsplit(self.path)
+        path = parts.path
+        if path == "/health":
             self._json(200, {"ok": True, "awake": self.channel.service.status().get("awake", False)})
+            return
+        if path in ("/", "/index.html"):
+            token = (parse_qs(parts.query).get("token") or [None])[0]
+            if not self._authorized(query_token=token):
+                self._html(401, _TOKEN_PAGE)
+                return
+            self._html(200, _PAGE)
+            return
+        if path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
             return
         if not self._authorized():
             self._json(401, {"error": "unauthorized"})
             return
-        if self.path == "/status":
+        if path == "/status":
             self._json(200, self.channel.service.status())
             return
-        if self.path == "/tank":
+        if path == "/tank":
             self._json(200, self.channel.service.tank())
             return
-        if self.path == "/replies":
+        if path == "/replies":
             self._json(200, {"replies": list(self.channel.replies)})
             return
         self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
-        if self.path != "/message":
+        if urlsplit(self.path).path != "/message":
             self._json(404, {"error": "not found"})
             return
         if not self._authorized():

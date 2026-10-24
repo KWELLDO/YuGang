@@ -126,3 +126,36 @@ def _request(port, method, path, body=None, token=None):
     connection.close()
     return response.status, json.loads(raw.decode("utf-8"))
 
+def test_fish_tank_page_requires_token_and_speaks_html(running):
+    service, _store, _cfg = running
+    channel = HttpChannel("127.0.0.1", 0, token="s3cret")
+    channel.bind(service)
+    channel.start(service.handle_incoming)
+    port = channel._server.server_address[1]
+    try:
+        status, headers, body = _request_raw(port, "GET", "/")
+        assert status == 401
+        assert "text/html" in headers["Content-Type"]
+
+        status, headers, body = _request_raw(port, "GET", "/?token=s3cret")
+        assert status == 200
+        assert "text/html" in headers["Content-Type"]
+        assert "鱼缸" in body and "/message" in body
+
+        status, headers, _body = _request_raw(
+            port, "GET", "/", headers={"Authorization": "Bearer s3cret"}
+        )
+        assert status == 200
+        assert "text/html" in headers["Content-Type"]
+    finally:
+        channel.stop()
+
+
+def _request_raw(port, method, path, headers=None):
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=15)
+    connection.request(method, path, headers=headers or {})
+    response = connection.getresponse()
+    raw = response.read().decode("utf-8")
+    response_headers = {k: v for k, v in response.getheaders()}
+    connection.close()
+    return response.status, response_headers, raw
