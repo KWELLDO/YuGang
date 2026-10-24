@@ -97,6 +97,11 @@ the resulting diff and evidence ids in a new SELF version, and leaves an HTML
 `<!-- evidence: … -->` comment in the changed section. A full-document `self_edit`
 is still accepted for older callers, but is no longer requested from the model.
 
+A past SELF version can be restored with `restore_self(version_id, reason)`. It writes an
+L1 `system/action` note, then commits the old body as a **new** version whose reason names
+the restored id. History is not rewritten, so a rollback is itself auditable and visible
+in the fish tank's revision list.
+
 If the sleep output is truncated or not valid JSON, the gateway first records the raw
 output as a `system/error` (not as a diary), retries once with a shorter schema, and
 only then writes an honest failure diary. It never silently turns a broken JSON blob

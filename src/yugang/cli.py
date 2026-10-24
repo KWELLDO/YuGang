@@ -208,6 +208,14 @@ def cmd_message(args: argparse.Namespace) -> int:
         service.stop()
 
 
+def cmd_self_restore(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = make_store(cfg)
+    version = store.restore_self(args.version_id, args.reason, actor=args.actor)
+    _print_json({"ok": True, "id": version.id, "ts": version.ts, "reason": version.reason, "evidence_refs": version.evidence_refs})
+    return 0
+
+
 def cmd_redact(args: argparse.Namespace) -> int:
     cfg = load_config(args)
     store = make_store(cfg)
@@ -431,6 +439,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--channel", default="cli")
     p.add_argument("--sender", default="kwelldo")
     p.set_defaults(func=cmd_message)
+
+    p = sub.add_parser("self-restore", help="把一个历史 SELF.md 版本恢复为新版本（保留历史）")
+    p.add_argument("version_id")
+    p.add_argument("--reason", required=True)
+    p.add_argument("--actor", default="operator")
+    p.set_defaults(func=cmd_self_restore)
 
     p = sub.add_parser("redact", help="隐藏一条 L1 事件的可读内容（不重写哈希链）")
     p.add_argument("event_id")

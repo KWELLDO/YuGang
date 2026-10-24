@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 04:22 CST（Asia/Shanghai）
+更新时间：2026-10-25 04:38 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：74 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
+- 自动化测试：75 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -175,3 +175,8 @@
 - `get_event()`、`events()` 读时返回 replacement，并在 meta 标 `redacted=True`；`recall()` 跳过被删事件，连 FTS 命中的 snippet 也不会泄漏。
 - 哈希链不改写：原始 bytes 仍在 events 表里，`verify_chain()` 仍为 true；这不是密码学擦除，真正擦除需要重建日志。
 - CLI：`yugang --home <home> redact <event_id> --reason "..."`。测试 `test_redaction_hides_content_without_rewriting_the_chain`、`test_redaction_requires_a_reason`；全量 **74 passed**。
+## SELF 历史版本可恢复（04:38 CST，代码完成）
+
+- 新增 `MemoryStore.restore_self(version_id, reason, *, actor="operator")`：先写一条 L1 `system/action`（refs 指向目标版本和当前版本），再把目标版本的正文作为**新版本**提交；reason 含「回滚到 <id>：<reason>」，历史版本一条不删。
+- CLI：`yugang --home <home> self-restore <version_id> --reason "..."`。当前版本就是目标时拒绝（避免无意义版本）。
+- 测试 `test_self_restore_creates_a_new_version_without_deleting_history`；全量 **75 passed**。

@@ -718,6 +718,32 @@ class MemoryStore:
         )
         return self.get_self_version(vid)  # type: ignore[return-value]
 
+    def restore_self(self, version_id: str, reason: str, *, actor: str = "operator") -> SelfVersion:
+        """Restore an old SELF.md body as a *new* version, leaving history intact."""
+        target = self.get_self_version(version_id)
+        if target is None:
+            raise ValueError(f"unknown self version: {version_id}")
+        current = self.current_self_version()
+        if current is not None and current.content == target.content:
+            raise ValueError(f"self version is already current: {version_id}")
+        if not reason.strip():
+            raise ValueError("a self restore requires a reason")
+        note = self.append_event(
+            "system",
+            "action",
+            f"操作员把 SELF.md 恢复为 {version_id}：{reason}",
+            actor=actor,
+            refs=[version_id] + ([current.id] if current else []),
+            meta={"stage": "self_restore", "target": version_id, "reason": reason},
+        )
+        refs = list(target.evidence_refs) + [note.id]
+        return self.commit_self(
+            target.content,
+            f"回滚到 {version_id}：{reason}",
+            refs,
+            accepted_by=actor,
+        )
+
     def get_self_version(self, version_id: str) -> SelfVersion | None:
         row = self.conn.execute("SELECT * FROM self_versions WHERE id = ?", (version_id,)).fetchone()
         return SelfVersion.from_row(row) if row else None
