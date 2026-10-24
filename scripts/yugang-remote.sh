@@ -3,6 +3,7 @@
 #
 #   ./scripts/yugang-remote.sh "我来看你了。"   # send a message, wait for reply
 #   ./scripts/yugang-remote.sh --status         # gateway + memory + budget
+#   ./scripts/yugang-remote.sh --tank           # her body: SELF.md, sleep, loops, recent events
 #   ./scripts/yugang-remote.sh --health         # liveness only
 #   echo "从手机发来的" | ./scripts/yugang-remote.sh
 #
@@ -18,8 +19,13 @@ pretty() {
   python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), ensure_ascii=False, indent=2))'
 }
 
+remote_get() {
+  local path="$1"
+  ssh -o BatchMode=yes "$HOST" "TOKEN=\$(awk -F= '/^YUGANG_HTTP_TOKEN=/{print \$2}' /etc/dafeiyu-dsh.env); curl -fsS -H \"Authorization: Bearer \$TOKEN\" $BASE$path"
+}
+
 remote_status() {
-  ssh -o BatchMode=yes "$HOST" "TOKEN=\$(awk -F= '/^YUGANG_HTTP_TOKEN=/{print \$2}' /etc/dafeiyu-dsh.env); curl -fsS -H \"Authorization: Bearer \$TOKEN\" $BASE/status"
+  remote_get /status
 }
 
 case "${1:-}" in
@@ -29,6 +35,12 @@ case "${1:-}" in
     ;;
   --status|-s)
     remote_status | pretty
+    ;;
+  --tank|-t)
+    remote_get /tank | pretty
+    ;;
+  --replies)
+    remote_get /replies | pretty
     ;;
   --help)
     sed -n '1,20p' "$0"

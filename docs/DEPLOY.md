@@ -56,6 +56,7 @@ A small client wraps this so a phone/laptop only needs the existing SSH access:
 ```bash
 ./scripts/yugang-remote.sh "我来看你了。"
 ./scripts/yugang-remote.sh --status
+./scripts/yugang-remote.sh --tank     # SELF.md、最近一次睡去、未闭合事项、最近事件
 echo "排队时想到的一句话" | ./scripts/yugang-remote.sh
 ```
 
