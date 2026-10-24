@@ -16,7 +16,10 @@ A judgment is a claim plus a falsifier plus evidence refs. It is immutable. Revi
 (supported / refuted / needs-evidence) are appended separately; current status is derived
 from the latest review. A new judgment may name a preexisting judgment in `supersedes`;
 this is a lineage link, not a delete — the old row stays and the new one points at it. A
-judgment created in the same sleep cannot supersede anything, and an unknown id is rejected.
+judgment created in the same sleep cannot supersede anything, an unknown id is rejected,
+and an already-superseded judgment cannot be superseded a second time (the lineage stays
+linear). `current_judgments()` returns the thin current view (not superseded); waking, sleep
+review and the fish tank use it, while `judgments()` still returns the full history.
 
 Sleep is where old judgments are re-read. The sleep prompt lists judgments whose latest
 status is `open` or `needs-evidence`, and she may review them with real L1 refs. A review

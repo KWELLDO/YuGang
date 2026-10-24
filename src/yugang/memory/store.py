@@ -429,8 +429,16 @@ class MemoryStore:
         for ref in refs:
             if not self.ref_exists(ref):
                 raise ValueError(f"unknown evidence ref: {ref}")
-        if supersedes and not self.get_judgment(supersedes):
-            raise ValueError(f"unknown supersedes judgment: {supersedes}")
+        if supersedes:
+            if not self.get_judgment(supersedes):
+                raise ValueError(f"unknown supersedes judgment: {supersedes}")
+            # Keep the lineage linear: an already-superseded judgment cannot be
+            # superseded again by a sibling, or the "current" set would branch.
+            row = self.conn.execute(
+                "SELECT 1 FROM judgments WHERE supersedes = ? LIMIT 1", (supersedes,)
+            ).fetchone()
+            if row:
+                raise ValueError(f"judgment already superseded: {supersedes}")
         jid = new_id("judg")
         when = ts or now_iso()
         self.conn.execute(
@@ -502,6 +510,29 @@ class MemoryStore:
         sql = (
             "SELECT j.* FROM judgments j "
             "WHERE COALESCE((SELECT r.verdict FROM judgment_reviews r "
+            "WHERE r.judgment_id = j.id ORDER BY r.ts DESC, r.rowid DESC LIMIT 1), 'open') "
+        )
+        args: list[Any] = []
+        if status:
+            sql += "= ?"
+            args.append(status)
+        else:
+            sql += "IS NOT NULL"
+        sql += " ORDER BY j.ts DESC LIMIT ?"
+        args.append(limit)
+        return [Judgment.from_row(r) for r in self.conn.execute(sql, args).fetchall()]
+
+    def current_judgments(self, *, status: str | None = None, limit: int = 50) -> list[Judgment]:
+        """Judgments that no later judgment has superseded.
+
+        The full history stays in `judgments()`; this is the thin current view
+        used by waking, sleep review and the fish tank page. Without it a
+        superseded duplicate would keep appearing as a current belief forever.
+        """
+        sql = (
+            "SELECT j.* FROM judgments j "
+            "WHERE NOT EXISTS (SELECT 1 FROM judgments s WHERE s.supersedes = j.id) "
+            "AND COALESCE((SELECT r.verdict FROM judgment_reviews r "
             "WHERE r.judgment_id = j.id ORDER BY r.ts DESC, r.rowid DESC LIMIT 1), 'open') "
         )
         args: list[Any] = []

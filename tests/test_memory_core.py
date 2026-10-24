@@ -238,6 +238,25 @@ def test_merge_similar_cards_prefers_accepted_and_marks_the_rest(store):
     assert store.card_status(duplicate.id) == "merged"
 
 
+def test_current_judgments_excludes_superseded_and_rejects_branching(store):
+    evidence = store.append_event("human", "message", "同一条证据")
+    old = store.add_judgment("旧判断", "如果被反例推翻", [evidence.id], 0.4)
+    new = store.add_judgment(
+        "更窄的新判断",
+        "如果出现一次无人提示的自发读记忆",
+        [evidence.id],
+        0.7,
+        supersedes=old.id,
+    )
+    current = {j.id for j in store.current_judgments(limit=20)}
+    assert old.id not in current
+    assert new.id in current
+    # A second sibling cannot supersede the same old judgment: the lineage
+    # would branch and "current" would no longer be a thin view.
+    with pytest.raises(ValueError):
+        store.add_judgment("另一个分支", "如果被反例推翻", [evidence.id], 0.5, supersedes=old.id)
+
+
 def test_sleep_applies_judgment_stance_loop_and_self_edit(store, cfg):
     evidence = store.append_event("human", "message", "你昨天说会记得我")
     revised = DEFAULT_SELF_TEMPLATE.replace(

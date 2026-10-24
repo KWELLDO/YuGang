@@ -722,7 +722,7 @@ class GatewayService:
         last_sleep = self.store.latest_event("sleep")
         judgments = [
             {**_jsonable(j), "status": self.store.judgment_status(j.id)}
-            for j in self.store.judgments(limit=10)
+            for j in self.store.current_judgments(limit=10)
         ]
         cards = [
             {**_jsonable(c), "status": self.store.card_status(c.id)}

@@ -114,7 +114,7 @@ def build_wake_context(
     loops = store.open_loops(limit=20)
     cards = reviewable_cards(store, 10)
     stance = store.current_stance()
-    judgments = store.judgments(limit=6)
+    judgments = store.current_judgments(limit=6)
     pending = store.pending_messages(limit=10)
     recent = list(reversed(store.events(limit=int(getattr(config, "recent_event_limit", 16)), order="desc")))
     recalled = store.recall(query, limit=int(getattr(config, "recall_limit", 6)), now=now, log=False) if query else []

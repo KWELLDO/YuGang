@@ -53,8 +53,8 @@ def self_alarms_available(store: Any, config: Any, now: datetime | None = None) 
 
 
 def _reviewable_judgments(store: Any, limit: int = 20) -> list[Any]:
-    items = list(store.judgments(status="open", limit=limit)) + list(
-        store.judgments(status="needs-evidence", limit=limit)
+    items = list(store.current_judgments(status="open", limit=limit)) + list(
+        store.current_judgments(status="needs-evidence", limit=limit)
     )
     items.sort(key=lambda item: parse_ts(item.ts), reverse=True)
     return items[:limit]
