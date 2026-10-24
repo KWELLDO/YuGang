@@ -177,7 +177,8 @@ def build_wake_context(
     else:
         lines.append("（还没有形成过立场。）")
     lines.append("")
-    lines.append("## 我最近的判断（L2）")
+    lines.append("## 我最近的判断（L2，仅当前有效）")
+    lines.append("（被取代的旧判断不在这个列表里；下面 L1 历史里如果出现旧 id，那是历史记录，不是当前立场。）")
     if judgments:
         status_labels = {
             "open": "待验证",
@@ -219,7 +220,7 @@ def build_wake_context(
     else:
         lines.append("（没有。）")
     lines.append("")
-    lines.append("## 最近的 L1（旧→新）")
+    lines.append("## 最近的 L1（原始记录，旧→新；不是当前判断）")
     if recent:
         for event in recent:
             lines.append(f"- [{event.id}] {event.ts} {event.source}/{event.kind}：{event.content[:400]}")
@@ -227,7 +228,7 @@ def build_wake_context(
         lines.append("（没有。）")
     lines.append("")
     if recalled:
-        lines.append("## 与这次醒来相关的旧记忆")
+        lines.append("## 与这次醒来相关的旧记忆（L1 历史，不是当前判断）")
         for hit in recalled:
             lines.append(f"- [{hit.event.id}] {hit.event.ts}：{hit.event.content[:500]}")
         lines.append("")

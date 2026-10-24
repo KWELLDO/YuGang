@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 04:52 CST（Asia/Shanghai）
+更新时间：2026-10-25 05:00 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：82 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
+- 自动化测试：83 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -204,9 +204,15 @@
 
 - `backup` 以前直接复制 `SELF.md` 文件；如果进程在「提交 SELF 版本」和「写文件」之间崩溃，备份会抓到旧文件。
 - 现在有当前 SELF 版本时，备份直接用数据库里的正文写 `<stem>.SELF.md`；只有数据库里还没有版本时才回退到文件。
-- 新增 `test_backup_uses_the_database_self_not_a_stale_file`；全量 **82 passed**。
+- 新增 `test_backup_uses_the_database_self_not_a_stale_file`；全量 **83 passed**。
 ## GitHub Actions 在 3.11–3.13 上跑测试（04:52 CST，已验证）
 
 - 新增 `.github/workflows/tests.yml`：push 到 master 与 PR 时，在 Python 3.11 / 3.12 / 3.13 上安装并跑全量测试。
 - 首次运行 `40131580352` 三个矩阵全部通过（约 28–30 秒）；README 加 tests badge。
 - 这保证开源仓库不是只在本机/云端 Python 3.13 上能跑。
+## 醒来上下文明确区分“当前 L2”与“L1 历史”（05:00 CST，代码完成）
+
+- 真实事故：20:52 一次误发的 `--raw /tank` 消息唤醒她后，她从“最近的 L1”和“相关旧记忆”里看到已被取代的 94fb0d、b58cad、9bb4a2，误以为当前 L2 列表里它们还在；实际 `current_judgments()` 已排除。
+- 修复不是改判断数据，而是改上下文标题与提示：`## 我最近的判断（L2，仅当前有效）` 下注明“被取代的旧判断不在这个列表里；下面 L1 历史里如果出现旧 id，那是历史记录，不是当前立场”；`## 最近的 L1（原始记录，旧→新；不是当前判断）`；`## 与这次醒来相关的旧记忆（L1 历史，不是当前判断）`。
+- 新增 `test_wake_context_separates_current_l2_from_l1_history`：构造旧判断 + supersedes 新判断，断言 L2 段只出现新 id、不出现旧 id；全量 83 passed。
+- 20:52 的 `--raw /tank` 是操作员误把命令行参数当消息发给她，不是用户消息；已在 L1 追加 system/note 更正，并引用误发消息与她当时的回复。

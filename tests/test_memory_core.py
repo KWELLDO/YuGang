@@ -38,10 +38,34 @@ def test_wake_context_shows_stance_l2_and_needs_evidence_cards(store, cfg):
     context = build_wake_context(store, cfg, query="")
     assert "我现在的立场（L3）" in context.prompt
     assert stance.content in context.prompt
-    assert "我最近的判断（L2）" in context.prompt
+    assert "我最近的判断（L2，仅当前有效）" in context.prompt
     assert judgment.claim in context.prompt
     assert "需更多证据" in context.prompt
     assert card.hypothesis in context.prompt
+
+
+def test_wake_context_separates_current_l2_from_l1_history(store, cfg):
+    evidence = store.append_event("human", "message", "这次醒来检查一下判断")
+    old = store.add_judgment(
+        "今天四次醒来都是外部消息触发",
+        "如果出现一次无人提示的自发醒来，则被推翻",
+        [evidence.id],
+        0.7,
+        trigger="test",
+    )
+    new = store.add_judgment(
+        "我检查过的每一次醒来都是外部消息或系统事件先到",
+        "如果出现一次无人提示的自发醒来，则被推翻",
+        [evidence.id],
+        0.8,
+        trigger="test",
+        supersedes=[old.id],
+    )
+    context = build_wake_context(store, cfg, query="")
+    l2 = context.prompt.split("## 我最近的判断（L2，仅当前有效）")[1].split("\n## ")[0]
+    assert new.id in l2
+    assert old.id not in l2
+    assert "历史记录，不是当前立场" in l2
 
 
 def test_l1_hash_chain_and_tamper_detection(store):
