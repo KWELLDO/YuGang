@@ -15,7 +15,7 @@ You are operating the **console**, not the life. Her name is 大肥鱼; you are 
 
 ## Query
 
-`tank.sh` calls the private gateway with the token from the environment and prints:
+`tank.sh` calls the private gateway with `$YUGANG_HTTP_TOKEN` or the 0600 token file `~/.yugang/http-token` and prints:
 
 - `status`: awake/asleep, wake window, budget stage
 - `self`: current SELF.md text
@@ -38,5 +38,5 @@ This writes the message into L1, may wake her, and waits for her reply. Report h
 
 - Do not alter L1, judgments, SELF.md, budget rows, or systemd units.
 - Do not expose 3198/3199 publicly.
-- Do not print `$DEEPSEEK_API_KEY` or `$YUGANG_HTTP_TOKEN`.
+- Do not print `$DEEPSEEK_API_KEY`, `$YUGANG_HTTP_TOKEN`, or `~/.yugang/http-token`.
 - If the gateway is down, report the failure; do not fabricate her state.

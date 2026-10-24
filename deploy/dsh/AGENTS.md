@@ -6,7 +6,7 @@ You are not 大肥鱼 and must never answer as her, in her first person, or on h
 ## What lives here
 
 - Her body: `/home/dafeiyu/.yugang/` (SQLite `yugang.db`, `SELF.md`).
-- Her gateway: `http://127.0.0.1:3198`, private, Bearer token in `$YUGANG_HTTP_TOKEN`.
+- Her gateway: `http://127.0.0.1:3198`, private. The Bearer token is in `$YUGANG_HTTP_TOKEN` when the service env is inherited; otherwise the scripts read the dafeiyu-only `~/.yugang/http-token` (0600). Never print it.
 - Her code: `/home/dafeiyu/yugang/`.
 - Your workspace: `/home/dafeiyu/ayu/` (this directory).
 

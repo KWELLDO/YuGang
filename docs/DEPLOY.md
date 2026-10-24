@@ -124,8 +124,13 @@ inference runtime. It has its own `DSH_HOME=/home/dafeiyu/.dsh` and its own web 
 sudo install -m 644 deploy/dsh/dafeiyu-dsh.service /etc/systemd/system/dafeiyu-dsh.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now dafeiyu-dsh.service
+# make the HTTP token available to the console scripts (0600, owner dafeiyu)
+sudo deploy/dsh/install-token.sh
 ```
 
+The operator console's tool shell does not always inherit the service environment, so the
+scripts read `~/.yugang/http-token` when `$YUGANG_HTTP_TOKEN` is absent. The API key stays in
+`/etc/dafeiyu-dsh.env` (root-only); this file contains only the local gateway token.
 It binds `127.0.0.1:3199`. The launch token is random per process and is written by the
 wrapper to `/home/dafeiyu/.dsh/web-url` (mode 0600) once the server is listening:
 
