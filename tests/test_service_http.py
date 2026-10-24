@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import time
 
 import pytest
 
@@ -159,3 +160,33 @@ def _request_raw(port, method, path, headers=None):
     response_headers = {k: v for k, v in response.getheaders()}
     connection.close()
     return response.status, response_headers, raw
+
+def test_startup_recovers_message_left_processing(tmp_path):
+    cfg = Config.default(str(tmp_path / "ayu"))
+    cfg.model = "mock"
+    store = MemoryStore(cfg.db_path)
+    message, _event = store.receive_message(
+        "http", "上次崩溃时没回的消息", sender="kwelldo", external_id="crash-1"
+    )
+    store.mark_message(message.id, "processing")
+
+    service = GatewayService(cfg, store, MockRuntime(responder=lambda m, p: "echo: recovered"))
+    service.start()
+    try:
+        deadline = time.time() + 8
+        row = None
+        while time.time() < deadline:
+            row = store.message_by_external("http", "crash-1")
+            if row is not None and row.status == "processed":
+                break
+            time.sleep(0.05)
+        assert row is not None and row.status == "processed"
+        assert "echo: recovered" in str(row.meta.get("reply"))
+        copies = [
+            e for e in store.events(limit=30)
+            if e.kind == "message" and e.content == "上次崩溃时没回的消息"
+        ]
+        assert len(copies) == 1
+    finally:
+        service.stop()
+        store.close()

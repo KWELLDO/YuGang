@@ -83,6 +83,42 @@ class GatewayService:
         self._worker = threading.Thread(target=self._worker_loop, name="yugang-worker", daemon=True)
         self._worker.start()
         self._started = True
+        self._recover_pending()
+
+    def _recover_pending(self) -> None:
+        """Requeue messages that were stored but never answered before a restart.
+
+        A message is written to L1 before it is queued, so a crash can leave it
+        'received' (never picked up) or 'processing' (the worker died mid-turn).
+        Recovery reuses the original message/event ids instead of calling
+        receive_message again, so no duplicate L1 event is created.
+        """
+        try:
+            messages = self.store.recoverable_messages()
+        except Exception as exc:
+            self.store.append_event("system", "error", f"未处理消息恢复失败：{type(exc).__name__}: {exc}")
+            return
+        if not messages:
+            return
+        for message in messages:
+            meta = message.meta if isinstance(message.meta, dict) else {}
+            incoming = IncomingMessage(
+                channel=message.channel,
+                content=message.content,
+                sender=message.sender,
+                external_id=message.external_id,
+                meta=meta,
+                wait_for_reply=False,
+            )
+            incoming.message_id = message.id
+            incoming.event_id = meta.get("event_id")
+            self.queue.put(incoming)
+        self.store.append_event(
+            "system",
+            "note",
+            f"恢复了 {len(messages)} 条上次没有处理完的消息。",
+            meta={"count": len(messages)},
+        )
 
     def stop(self) -> None:
         self._stop.set()
@@ -211,6 +247,7 @@ class GatewayService:
         message_id = incoming.message_id
         if message_id:
             self.store.mark_message(message_id, "failed" if error else "processed", error=error)
+            self.store.update_message_meta(message_id, {"reply": text, "channel": incoming.channel})
         meta: dict[str, Any] = {"reply": text, "channel": incoming.channel}
         if error:
             meta["error"] = error

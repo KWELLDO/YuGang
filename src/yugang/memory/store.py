@@ -4,6 +4,7 @@ import difflib
 import hashlib
 import json
 import sqlite3
+import threading
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -83,11 +84,35 @@ class MemoryStore:
 
     def __init__(self, db_path: str | Path):
         self.db_path = str(Path(db_path).expanduser())
-        self.conn = connect(self.db_path)
+        self._local = threading.local()
+        self._connections: list[sqlite3.Connection] = []
+        self._connections_lock = threading.Lock()
         init_db(self.conn)
 
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """One SQLite connection per thread.
+
+        The gateway has an HTTP intake thread and a single worker thread; sharing
+        one connection lets their transactions collide ("cannot start a
+        transaction within a transaction"). WAL plus a per-thread connection
+        keeps each thread's transaction boundary private.
+        """
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = connect(self.db_path)
+            self._local.conn = conn
+            with self._connections_lock:
+                self._connections.append(conn)
+        return conn
+
     def close(self) -> None:
-        self.conn.close()
+        with self._connections_lock:
+            connections = list(self._connections)
+            self._connections.clear()
+        for conn in connections:
+            conn.close()
+        self._local.conn = None
 
     # ---------------------------------------------------------------- L1 events
 
@@ -801,9 +826,33 @@ class MemoryStore:
             (status, now_iso(), error, message_id),
         )
 
+    def update_message_meta(self, message_id: str, patch: dict[str, Any]) -> None:
+        row = self.conn.execute("SELECT meta FROM messages WHERE id = ?", (message_id,)).fetchone()
+        if row is None:
+            return
+        meta = _loads(row["meta"], {})
+        if not isinstance(meta, dict):
+            meta = {}
+        meta.update(patch)
+        self.conn.execute("UPDATE messages SET meta = ? WHERE id = ?", (json.dumps(meta, ensure_ascii=False), message_id))
+
     def pending_messages(self, limit: int = 20) -> list[Message]:
         rows = self.conn.execute(
             "SELECT * FROM messages WHERE direction = 'in' AND status IN ('received', 'failed') "
+            "ORDER BY created_at ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [Message.from_row(r) for r in rows]
+
+    def recoverable_messages(self, limit: int = 50) -> list[Message]:
+        """Inbound messages that were never answered before the process died.
+
+        received means it was stored but not picked up; processing means the
+        worker died mid-turn. Both are safe to retry because a successful turn
+        marks the row processed before anything else observes it.
+        """
+        rows = self.conn.execute(
+            "SELECT * FROM messages WHERE direction = 'in' AND status IN ('received', 'processing') "
             "ORDER BY created_at ASC LIMIT ?",
             (limit,),
         ).fetchall()
