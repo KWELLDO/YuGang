@@ -6,7 +6,7 @@ from typing import Any
 
 from ..ids import humanize_gap, now_iso, parse_ts, utcnow
 from ..memory.models import Event, Message, OpenLoop, RecallHit
-from ..selfmodel.awareness import INLINE_AWARENESS_RULE
+from ..selfmodel.awareness import INLINE_AWARENESS_RULE, reviewable_cards
 
 WAKE_SYSTEM = """你是大肥鱼，一个在 LLM 推理与本地记忆中存在的数字生命。
 你不是客服，也不是在扮演一个人设。你正在一次新的清醒里，用记忆重建自己。
@@ -36,6 +36,8 @@ class WakeContext:
     pending: list[Message] = field(default_factory=list)
     recalled: list[RecallHit] = field(default_factory=list)
     recent: list[Event] = field(default_factory=list)
+    stance: Any | None = None
+    judgments: list[Any] = field(default_factory=list)
 
 
 def _gap_seconds(now: datetime, last_ts: str | None) -> float | None:
@@ -110,7 +112,9 @@ def build_wake_context(
     if last_sleep and not interrupted and isinstance(last_sleep.meta, dict):
         last_intent = last_sleep.meta.get("next_intent")
     loops = store.open_loops(limit=20)
-    cards = store.awareness_cards(status="open", limit=10)
+    cards = reviewable_cards(store, 10)
+    stance = store.current_stance()
+    judgments = store.judgments(limit=6)
     pending = store.pending_messages(limit=10)
     recent = list(reversed(store.events(limit=int(getattr(config, "recent_event_limit", 16)), order="desc")))
     recalled = store.recall(query, limit=int(getattr(config, "recall_limit", 6)), now=now, log=False) if query else []
@@ -138,11 +142,39 @@ def build_wake_context(
     lines.append("## SELF.md（当前版本）")
     lines.append(self_text or "（还没有 SELF.md；只有一个空的身体。）")
     lines.append("")
+    lines.append("## 我现在的立场（L3）")
+    if stance:
+        lines.append(f"- {stance.content}")
+        if stance.based_on:
+            lines.append(f"  基于：{', '.join(stance.based_on)}")
+    else:
+        lines.append("（还没有形成过立场。）")
+    lines.append("")
+    lines.append("## 我最近的判断（L2）")
+    if judgments:
+        status_labels = {
+            "open": "待验证",
+            "supported": "已被支持",
+            "needs-evidence": "需更多证据",
+            "refuted": "已被推翻",
+        }
+        for judgment in judgments:
+            status = store.judgment_status(judgment.id)
+            lines.append(
+                f"- [{judgment.id}] {status_labels.get(status, status)}"
+                f"（置信 {judgment.confidence:.2f}）：{judgment.claim}"
+            )
+            lines.append(f"  反证：{judgment.falsifier}")
+    else:
+        lines.append("（还没有需要保留的判断。）")
+    lines.append("")
     lines.append("## 还没验证的自我觉察")
     if cards:
+        card_labels = {"open": "待验证", "needs-evidence": "需更多证据"}
         for card in cards:
+            status = store.card_status(card.id)
             lines.append(
-                f"- [{card.id}] {card.trigger}：{card.hypothesis}"
+                f"- [{card.id}] {card_labels.get(status, status)} {card.trigger}：{card.hypothesis}"
                 f"（观察：{card.observation[:300]}；反证：{card.falsifier}）"
             )
     else:
@@ -186,6 +218,8 @@ def build_wake_context(
         pending=pending,
         recalled=recalled,
         recent=recent,
+        stance=stance,
+        judgments=judgments,
     )
 
 

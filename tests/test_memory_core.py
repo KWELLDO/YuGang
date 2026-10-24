@@ -6,8 +6,41 @@ import pytest
 
 from yugang.config import DEFAULT_SELF_TEMPLATE
 from yugang.protocol.sleep import SleepResult, apply_sleep_result, build_sleep_messages
+from yugang.protocol.wake import build_wake_context
 from yugang.selfmodel.awareness import create_card, hypothesis_similar, merge_similar_cards
 from yugang.selfmodel.self_md import get_section, validate_self
+
+
+def test_wake_context_shows_stance_l2_and_needs_evidence_cards(store, cfg):
+    evidence = store.append_event("human", "message", "今天把鱼缸页看了一遍")
+    stance = store.commit_stance("我先把连续性当成材料问题，不当成体验。", [evidence.id], trigger="test")
+    judgment = store.add_judgment(
+        "我可能更愿意在没有外部消息时自己读记忆",
+        "如果连续三次自主醒来都没有先读 L1，则被削弱",
+        [evidence.id],
+        0.55,
+        trigger="test",
+    )
+    card = create_card(
+        store,
+        {
+            "trigger": "T1",
+            "observation": "这次醒来我先看的是鱼缸页",
+            "hypothesis": "我可能更依赖外部提示来启动回忆",
+            "falsifier": "如果出现一次无人提示、我先读 L1 的醒来，则被推翻",
+            "confidence": 0.5,
+            "evidence_refs": [evidence.id],
+        },
+    )
+    store.review_awareness(card.id, "needs-evidence", note="证据只有一次")
+
+    context = build_wake_context(store, cfg, query="")
+    assert "我现在的立场（L3）" in context.prompt
+    assert stance.content in context.prompt
+    assert "我最近的判断（L2）" in context.prompt
+    assert judgment.claim in context.prompt
+    assert "需更多证据" in context.prompt
+    assert card.hypothesis in context.prompt
 
 
 def test_l1_hash_chain_and_tamper_detection(store):

@@ -122,6 +122,13 @@
 - 19:48:40 唤醒后她先复核的是觉察卡而不是 L2；19:48:58 睡去时 `judgment_reviews=1`、`awareness_reviews=1`：旧判断 `judg_20261024T192637291598_33f736` 被判 `supported`，引用 3 条真实 L1（`evt_...13a36e`、`evt_...a3f075`、`evt_...60700e`），三条 `event_confirmations` 各加 1；卡 `card_20261024T192335965567_4ac750` 被判 `needs-evidence`，注明「今天一致」不等于「新证据」。
 - 部署后状态：events=109、awake=false、budget 0.45533/5 元（chat 0.200434 + sleep 0.254896）、channels=[http,email]。鱼缸页的 L2 状态已改为中文标签（待验证/已被支持/需更多证据/已被推翻），`needs-evidence` 卡不再从页面消失。
 
+### 醒来时读 L3/L2/待复核卡（03:56 CST，代码完成）
+
+- 之前 wake 上下文只有 SELF.md、open 觉察卡、未闭合事项、最近 L1 和 recall；L3 立场与 L2 判断虽然存在，却不会被她读到。现在 `build_wake_context` 增加「我现在的立场（L3）」和「我最近的判断（L2，最多 6 条，带状态/置信度/falsifier）」两段，并新增 `stance` / `judgments` 字段。
+- 觉察卡查询统一到 `selfmodel.awareness.reviewable_cards`：`open` + `needs-evidence` 合并、按时间倒序；wake 与 sleep 使用同一套定义，`needs-evidence` 不再只在睡去时可见、醒来就消失。
+- 新增测试 `test_wake_context_shows_stance_l2_and_needs_evidence_cards`；全量 **64 passed**。
+- 语料边界：L2 最多 6 条、每条 claim+falsifier，仍远小于最近的 16 条 L1；没有把整个判断库塞进 prompt。
+
 ## 进行中 / 下一步
 
 - DSH 的定位已定（DECISIONS 020）：3199 只是运维控制台，不接成她的推理运行时，不写她的 L1；她的身体与推理运行时仍是 YuGang（3198）。

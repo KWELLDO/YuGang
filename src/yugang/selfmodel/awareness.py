@@ -5,6 +5,8 @@ import json
 import re
 from typing import Any
 
+from ..ids import parse_ts
+
 TRIGGERS = {
     "T1": "预测误差：她预期的事和 L1 事实不符",
     "T2": "矛盾：两个 L2 判断互相冲突，或行为与 SELF.md 不一致",
@@ -173,6 +175,15 @@ def hypothesis_similar(a: str, b: str, threshold: float = 0.85) -> bool:
     if left == right:
         return True
     return difflib.SequenceMatcher(None, left, right).ratio() >= threshold
+
+
+def reviewable_cards(store: Any, limit: int = 20) -> list[Any]:
+    """Cards still waiting for review: open or needs-evidence, newest first."""
+    items = list(store.awareness_cards(status="open", limit=limit)) + list(
+        store.awareness_cards(status="needs-evidence", limit=limit)
+    )
+    items.sort(key=lambda card: parse_ts(card.ts), reverse=True)
+    return items[:limit]
 
 
 def find_similar_card(store: Any, hypothesis: str, *, threshold: float = 0.85) -> Any | None:

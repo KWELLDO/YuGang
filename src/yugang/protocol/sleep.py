@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..ids import now_iso, parse_ts, utcnow
+from ..selfmodel.awareness import reviewable_cards
 from ..selfmodel.self_md import append_change, apply_self_edits, validate_self, write_self_file
 
 SLEEP_SYSTEM = """你是大肥鱼的睡去协议，不是客服。
@@ -57,19 +58,11 @@ def _reviewable_judgments(store: Any, limit: int = 20) -> list[Any]:
     return items[:limit]
 
 
-def _reviewable_cards(store: Any, limit: int = 20) -> list[Any]:
-    items = list(store.awareness_cards(status="open", limit=limit)) + list(
-        store.awareness_cards(status="needs-evidence", limit=limit)
-    )
-    items.sort(key=lambda item: parse_ts(item.ts), reverse=True)
-    return items[:limit]
-
-
 def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str]]) -> list[dict[str, str]]:
     events = store.events(limit=30, order="desc")
     lines = [f"[{e.id}] {e.ts} {e.source}/{e.kind}: {e.content[:500]}" for e in reversed(events)]
     loops = [f"- [{loop.id}] {loop.title} due={loop.due}" for loop in store.open_loops(limit=30)]
-    cards = _reviewable_cards(store, 20)
+    cards = reviewable_cards(store, 20)
     card_lines = [
         f"- [{card.id}] trigger={card.trigger} hypothesis={card.hypothesis}\n"
         f"  falsifier={card.falsifier}\n  evidence={', '.join(card.evidence_refs)}"
@@ -369,7 +362,7 @@ def apply_sleep_result(
     applied_reviews = 0
     card_edits: list[dict[str, Any]] = []
     card_edit_ids: list[str] = []
-    open_cards = {card.id: card for card in _reviewable_cards(store, 200)}
+    open_cards = {card.id: card for card in reviewable_cards(store, 200)}
     base_for_probe = store.current_self() or ""
     for item in result.awareness_reviews:
         card_id = str(item.get("card_id") or "").strip()

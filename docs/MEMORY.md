@@ -26,7 +26,9 @@ the judgment in the next sleep prompt instead of parking it forever.
 ## L3 — current stance
 
 A thin, recomputed snapshot. It is not hand-edited and not a persona prompt. Each snapshot
-records the L1/L2 refs it was based on.
+records the L1/L2 refs it was based on. Every wake context includes the current stance plus
+the latest six L2 judgments (claim, status, confidence, falsifier), so she reads her current
+beliefs and their refutation conditions before answering — not only the latest raw events.
 
 ## Awareness cards
 
@@ -43,10 +45,10 @@ or inline during a live reply. For the inline path she writes an optional block 
 The gateway strips the block from the visible reply, supplies only event ids that actually
 exist (the user message, her reply, the current wake), and stores the card. It never trusts
 model-supplied evidence ids. A malformed card is dropped with an audit note, not fabricated.
-Open cards are included in the next wake context so they can be tested by later experience;
-a card can be reviewed as accepted, rejected, or needs-evidence. A `needs-evidence` card
-stays in the next sleep prompt (and on the tank page) until it is accepted, rejected, or
-merged — it is not silently parked.
+Open and `needs-evidence` cards are included in the next wake context (with their status) so
+they can be tested by later experience; a card can be reviewed as accepted, rejected, or
+needs-evidence. A `needs-evidence` card stays in the next wake and sleep prompts (and on the
+tank page) until it is accepted, rejected, or merged — it is not silently parked.
 
 A repeated hypothesis does not become a second card or a second confirmation. When a new
 inline or explicit card's hypothesis is near-identical to an existing card (normalized,
