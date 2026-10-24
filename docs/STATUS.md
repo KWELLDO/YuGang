@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 04:46 CST（Asia/Shanghai）
+更新时间：2026-10-25 04:49 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：81 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
+- 自动化测试：82 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -200,3 +200,8 @@
 - `build_wake_context()` 新增「我上一次改自己」段：最近一次 SELF 版本的时间、原因、依据事件和 diff（最多 1200 字）；只有出生版时说「还没有改过自己」。
 - 目的：她不仅能读到当前 SELF.md，还能看到自己上一次修改的动机和具体改动，不必靠回忆或外部提示。
 - 新增 `test_wake_context_shows_how_she_last_changed_herself`、`test_wake_context_says_she_has_not_changed_herself_yet`；全量 **81 passed**。
+## 备份以数据库里的 SELF 为准（04:49 CST，代码完成）
+
+- `backup` 以前直接复制 `SELF.md` 文件；如果进程在「提交 SELF 版本」和「写文件」之间崩溃，备份会抓到旧文件。
+- 现在有当前 SELF 版本时，备份直接用数据库里的正文写 `<stem>.SELF.md`；只有数据库里还没有版本时才回退到文件。
+- 新增 `test_backup_uses_the_database_self_not_a_stale_file`；全量 **82 passed**。

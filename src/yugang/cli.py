@@ -339,11 +339,17 @@ def cmd_backup(args: argparse.Namespace) -> int:
     dest = db_path.parent
     self_target = dest / f"{stem}.SELF.md"
     self_source = Path(cfg.self_path)
-    if self_source.exists():
+    current_self = store.current_self_version()
+    if current_self is not None:
+        # The database is the source of truth. A crash between committing a
+        # SELF version and writing the file must not make the backup capture a
+        # stale body.
+        self_target.write_text(current_self.content, encoding="utf-8")
+        self_target.chmod(0o600)
+    elif self_source.exists():
         shutil.copy2(self_source, self_target)
         self_target.chmod(0o600)
     chain_ok, bad_event = store.verify_chain()
-    current_self = store.current_self_version()
     manifest = {
         "created_at": now_iso(),
         "db": db_path.name,
