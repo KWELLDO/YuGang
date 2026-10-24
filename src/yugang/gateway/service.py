@@ -462,6 +462,13 @@ class GatewayService:
         )
         if awareness and not error:
             self._record_inline_awareness(incoming, awareness, event)
+        if not error:
+            self._confirm_citations(
+                text,
+                source_event=event.id,
+                now=now,
+                exclude=[incoming.event_id] if incoming.event_id else [],
+            )
         self.last_reply = text
         incoming.finish(text, error)
         channel = self._channel(incoming.channel)
@@ -484,6 +491,42 @@ class GatewayService:
                     meta={"message_id": message_id, "reply_event": event.id},
                 )
         return event
+
+    def _confirm_citations(
+        self,
+        text: str,
+        *,
+        source_event: str,
+        now: datetime,
+        exclude: list[str] | None = None,
+    ) -> list[str]:
+        """Confirm old L1 events she cited in a reply.
+
+        The current waking window is the boundary: the message that just woke
+        her is context, not a memory she remembered. Failure to update a derived
+        counter must be visible but must not turn a delivered reply into an
+        error.
+        """
+        if not text or not source_event:
+            return []
+        wake = self.store.get_event(self._current_wake_id) if self._current_wake_id else None
+        before_ts = wake.ts if wake is not None else now.isoformat(timespec="microseconds")
+        try:
+            return self.store.confirm_citations(
+                text,
+                source_event=source_event,
+                before_ts=before_ts,
+                exclude=exclude or [],
+                ts=now.isoformat(timespec="microseconds"),
+            )
+        except Exception as exc:
+            self.store.append_event(
+                "system",
+                "error",
+                f"引用确认失败：{type(exc).__name__}: {exc}",
+                meta={"source_event": source_event},
+            )
+            return []
 
     def _record_inline_awareness(
         self, incoming: IncomingMessage, data: dict[str, Any], reply_event: Any
@@ -675,6 +718,7 @@ class GatewayService:
                     f"自主醒来的觉察卡未记录：{exc}",
                     meta={"trigger": awareness.get("trigger")},
                 )
+        self._confirm_citations(display, source_event=observation.id, now=now)
         self.window.transcript.append({"role": "assistant", "content": display})
         self.last_reply = display
         self._broadcast(display, meta={"kind": "autonomous", "reason": reason})

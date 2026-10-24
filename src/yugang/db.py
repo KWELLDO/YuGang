@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 4  # v2 judgment lineage, v3 practices, v4 practice checks
+SCHEMA_VERSION = 5  # v2 judgment lineage, v3 practices, v4 practice checks, v5 citation confirmations
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -209,6 +209,17 @@ CREATE TABLE IF NOT EXISTS event_confirmations (
   last_confirmed_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS citation_confirmations (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL,
+  source_event TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(event_id, source_event)
+);
+CREATE INDEX IF NOT EXISTS idx_citation_event ON citation_confirmations(event_id);
+CREATE INDEX IF NOT EXISTS idx_citation_source ON citation_confirmations(source_event);
+
 CREATE TABLE IF NOT EXISTS redactions (
   id TEXT PRIMARY KEY,
   ts TEXT NOT NULL,
@@ -252,6 +263,11 @@ CREATE TRIGGER IF NOT EXISTS budget_ledger_no_update BEFORE UPDATE ON budget_led
 BEGIN SELECT RAISE(ABORT, 'budget_ledger is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS budget_ledger_no_delete BEFORE DELETE ON budget_ledger
 BEGIN SELECT RAISE(ABORT, 'budget_ledger is append-only'); END;
+
+CREATE TRIGGER IF NOT EXISTS citation_confirmations_no_update BEFORE UPDATE ON citation_confirmations
+BEGIN SELECT RAISE(ABORT, 'citation_confirmations is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS citation_confirmations_no_delete BEFORE DELETE ON citation_confirmations
+BEGIN SELECT RAISE(ABORT, 'citation_confirmations is append-only'); END;
 """
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import re
 import sqlite3
 import threading
 from collections import Counter
@@ -48,6 +49,7 @@ KINDS = {
     "recall",
 }
 GENESIS_HASH = "0" * 64
+_EVENT_REF_RE = re.compile(r"\bevt_[A-Za-z0-9_]+")
 
 
 def canonical_json(value: Any) -> str:
@@ -475,6 +477,76 @@ class MemoryStore:
                 "last_recalled_at = excluded.last_recalled_at",
                 (event_id, when),
             )
+
+    def confirm_citations(
+        self,
+        text: str,
+        *,
+        source_event: str,
+        before_ts: str,
+        limit: int = 20,
+        exclude: Iterable[str] = (),
+        ts: str | None = None,
+    ) -> list[str]:
+        """Count old L1 events she explicitly cites in a new reply.
+
+        A citation is stronger than a recall but weaker than an L2 review: she
+        actually used this material in her own answer. Only events that existed
+        before the current waking window can be confirmed; citing the message
+        that just arrived is not remembering.
+        """
+        if not text or not source_event:
+            return []
+        source = self.get_event(source_event)
+        if source is None:
+            raise ValueError(f"unknown source event: {source_event}")
+        try:
+            cutoff = parse_ts(before_ts)
+        except Exception:
+            cutoff = parse_ts(source.ts)
+        when = ts or now_iso()
+        excluded = set(exclude)
+        candidates = list(dict.fromkeys(_EVENT_REF_RE.findall(text)))[:limit]
+        confirmed: list[str] = []
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            for ref in candidates:
+                if ref == source_event or ref in excluded:
+                    continue
+                event = self.get_event(ref)
+                if event is None or event.meta.get("redacted"):
+                    continue
+                try:
+                    if parse_ts(event.ts) >= cutoff:
+                        continue
+                except Exception:
+                    continue
+                cur = self.conn.execute(
+                    "INSERT OR IGNORE INTO citation_confirmations(id, event_id, source_event, ts, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (new_id("cite"), ref, source_event, when, now_iso()),
+                )
+                if cur.rowcount == 0:
+                    continue
+                self.conn.execute(
+                    "INSERT INTO event_confirmations(event_id, confirmations, last_confirmed_at) VALUES (?, 1, ?) "
+                    "ON CONFLICT(event_id) DO UPDATE SET confirmations = confirmations + 1, "
+                    "last_confirmed_at = excluded.last_confirmed_at",
+                    (ref, when),
+                )
+                confirmed.append(ref)
+            self.conn.execute("COMMIT")
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        return confirmed
+
+    def citation_count(self, event_id: str) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM citation_confirmations WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        return int(row["n"])
 
     # --------------------------------------------------------------- L2 judgments
 

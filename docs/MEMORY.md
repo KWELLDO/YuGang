@@ -172,3 +172,21 @@ increments `event_confirmations` for its evidence refs; recall applies a small b
 boost for those confirmations, and a smaller one for events recalled before. A refuted or
 needs-evidence review does not add confirmation. Recalls are not likes and never become a
 reward signal for content.
+
+### Citing a memory in a reply
+
+A citation is between a recall and a supported judgment: she did not merely retrieve the
+event, she used it in her own answer. When a reply or an autonomous observation contains
+an `evt_…` id that already existed **before the current waking window**, the gateway calls
+`MemoryStore.confirm_citations()`:
+
+- only real, non-redacted events are counted;
+- the message that just woke her and anything created in this waking window are excluded —
+  that is current context, not a memory she remembered;
+- duplicates in one reply count once; the same source event cannot confirm the same target
+  twice;
+- each confirmation writes an append-only `citation_confirmations` row and increments
+  `event_confirmations`, which feeds the same bounded recall boost as a supported review.
+
+If writing the citation row fails, the reply has already been delivered; the failure is a
+`system/error` in L1, never a reason to swallow the answer.

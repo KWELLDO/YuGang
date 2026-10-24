@@ -321,3 +321,12 @@
 - 提交：`c913685 feat(memory): add self-practices, a procedural self she can test and drop`、`e2d22a4 feat(memory): check whether a practice was actually followed`，均已 push origin master 并部署到 `/home/dafeiyu/yugang`。
 - 部署验证：`meta.schema_version=4`；`practice_reviews` 有 `evidence_refs` 列；active practice 1 条；检查 2 条（都 untested）；`integrity=ok`；`/health` ok。当前 events=214、budget 1.210274/5 元、SELF v3。
 - 仍缺：还没有出现 `followed` 或 `violated` 的真实检查，因为还没有遇到「判断 L2 取代是否落成」的真实情形；这只能等事件发生，不能用提示词制造。
+
+### 引用确认：被未来自己用到的记忆（06:50 CST，代码完成）
+
+- 设计动机：原有 `event_confirmations` 只在 L2 判断被 `supported` 复核时增加；她平时在回复里引用旧 L1 事件 id（「我记得 evt_...」）这一行为没有被计入。设计文档说记忆的重量来自被未来的自己重新确认，引用正是比单纯 recall 更强、比 supported 判断更弱的确认。
+- schema v5：新增 append-only 的 `citation_confirmations(id, event_id, source_event, ts, created_at)`，对 `(event_id, source_event)` 唯一；`event_confirmations` 仍是聚合计数。触发器拒绝 update/delete。
+- `MemoryStore.confirm_citations(text, *, source_event, before_ts, limit=20, exclude=(), ts=None)`：从文本提取真实 `evt_...` id；只接受真实、未删除、ts 早于 `before_ts` 的事件；排除 source event 与调用方指定的当前消息；同一回复内重复引用只算一次；同一 source event 对同一 target 只能确认一次；每写一条 citation 就 `event_confirmations + 1`。这些确认进入 `recall()` 已有的有界加权（最多 +30%）。
+- `GatewayService._confirm_citations()`：以当前 wake 事件的 ts 为边界，排除刚叫醒她的入站消息；在 `_finalize()` 里回复已写 L1 之后调用，失败写 `system/error`，但不把已送达的回复改成错误。自主醒来的 observation 也走同一条路径，边界是它自己的 wake。
+- 新增 `tests/test_citations.py`：只确认当前窗口之前的真实事件；当前消息、窗口内事件、缺失 id、重复引用、同一 source 重复确认都不计数；真实 `service.chat()` 回复引用旧事件会写入 citation 行并增加计数。全量 **117 passed**。
+- 尚未部署；下一步部署 schema v5，并用一次真实对话让她引用旧 L1，验证 citation 行与计数落盘。
