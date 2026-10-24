@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 02:52 CST（Asia/Shanghai）
+更新时间：2026-10-25 02:58 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -49,6 +49,13 @@
 - 睡去输出截断事故（01:56 CST）：手动 `/sleep` 时模型输出在 `self_edit` 的完整 SELF.md 中途被 1200 token 截断，旧代码把原始 JSON 当日记写入，judgments/stance/open_loops/SELF 都没有应用。已修复：`reply_max_tokens=2000`、`sleep_max_tokens=6000`；`Completion.finish_reason`；`SleepResult.parsed`；解析失败时先写 system/error 保留原始输出，再用短约束重试一次，仍失败则写诚实失败日记，绝不把原始 JSON 当日记。SELF 修订改为 `self_edits` 结构化操作（section/op/text/evidence_refs），程序校验章节、op、真实证据后应用。
 - 账单：截至 02:17，当日花费 0.12231 元 / 5 元（chat 0.065188 + sleep 0.057122）；events=41。
 
+### 觉察卡复核闭环（02:41 CST）
+
+- 睡去协议现在会读取 open 觉察卡，允许她给出 `accepted` / `rejected` / `needs-evidence` / `open`（只记 note、不关闭）；只接受真实且仍 open 的 card_id，未知卡和重复复核会被忽略。
+- 02:40:06 与 02:41:42 两次唤醒后，她明确判断“今天没有新证据，三张卡都留 open”，并逐条给出理由（18:24、18:30、18:33、18:40、18:41 五次醒来都由外部消息触发，没有自发读记忆的独立事件）。
+- 02:41:56 睡去（diary `evt_20261024T184156600270_c51fa9`，sleep `evt_20261024T184156625828_ce14d5`）：`awareness_reviews=5`、`judgments=2`、`stance=true`、`parsed=true`、SELF 未改。5 张卡全部以 `status=open` 记录了 note，没有为了“有数字”而关闭任何一张。
+- 当前：events=67、awake=false、budget 0.23414/5 元（chat 0.121488 + sleep 0.112652）、channels=[http,email]。
+
 ## 进行中 / 下一步
 
 - 把 DSH 接成她的推理运行时（目前 3199 只是运维控制台，不参与她的唤醒/记忆写入）。
@@ -56,4 +63,4 @@
 - IM 通道：微信/QQ 需要公网回调或非官方桥，尚未接入。
 - 私有网络：目前是 SSH 隧道；Tailscale/WireGuard 还需要手机端安装与授权。
 - 更长的连续运行观察：跨日预算、异常/重启后的恢复、觉察卡进入唤醒上下文。
-- 觉察卡复核已实现（睡去时可 accepted/rejected/needs-evidence，只接受真实且仍 open 的 card_id），待部署后用一次真实睡去验证落盘。
+- 觉察卡复核已部署并验证（5 张卡以 status=open 记录 note，无卡被强行关闭）；下一步观察她是否在无人提示时先读记忆，以及是否会把重复卡片合并。
