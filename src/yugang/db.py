@@ -150,6 +150,18 @@ CREATE TABLE IF NOT EXISTS recall_log (
   context TEXT
 );
 
+CREATE TABLE IF NOT EXISTS recall_stats (
+  event_id TEXT PRIMARY KEY,
+  recall_count INTEGER NOT NULL DEFAULT 0,
+  last_recalled_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS event_confirmations (
+  event_id TEXT PRIMARY KEY,
+  confirmations INTEGER NOT NULL DEFAULT 0,
+  last_confirmed_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS redactions (
   id TEXT PRIMARY KEY,
   ts TEXT NOT NULL,

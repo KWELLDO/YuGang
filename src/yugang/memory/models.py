@@ -197,6 +197,8 @@ class RecallHit:
     event: Event
     score: float
     snippet: str
+    confirmations: int = 0
+    recall_count: int = 0
 
 
 @dataclass(frozen=True)

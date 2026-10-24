@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from yugang.config import DEFAULT_SELF_TEMPLATE
@@ -36,6 +38,33 @@ def test_recall_mixed_chinese_terms_and_fts(store):
     fts_hits = store.recall("深海的视频", limit=5, log=False)
     assert fts_hits
     assert fts_hits[0].event.id == target.id
+
+
+def test_recall_is_reinforced_by_future_confirmation(store):
+    now = datetime(2026, 10, 25, 1, 0, tzinfo=timezone.utc)
+    evidence = store.append_event("human", "message", "鲸歌录音里有一段很低的低频")
+    store.append_event("human", "message", "鲸歌录音的第二个版本更安静")
+    judgment = store.add_judgment(
+        "这段鲸歌录音值得保留",
+        "如果后来的我听不出它与噪声的区别，则被推翻",
+        [evidence.id],
+        0.5,
+        trigger="test",
+    )
+    before = {hit.event.id: hit for hit in store.recall("鲸歌录音", limit=5, now=now, log=False)}
+    assert evidence.id in before
+    base_score = before[evidence.id].score
+    assert before[evidence.id].confirmations == 0
+
+    store.review_judgment(judgment.id, "supported", [evidence.id], note="重新听后仍成立")
+    after = {hit.event.id: hit for hit in store.recall("鲸歌录音", limit=5, now=now, log=False)}
+    assert after[evidence.id].confirmations == 1
+    assert after[evidence.id].score > base_score
+
+    store.recall("鲸歌录音", limit=5, now=now, log=True)
+    later = {hit.event.id: hit for hit in store.recall("鲸歌录音", limit=5, now=now, log=False)}
+    assert later[evidence.id].recall_count >= 1
+    assert later[evidence.id].score >= after[evidence.id].score
 
 
 def test_judgment_requires_falsifier_and_keeps_history(store):
@@ -138,6 +167,8 @@ def test_sleep_applies_judgment_stance_loop_and_self_edit(store, cfg):
     assert applied["open_loops"] == 1
     assert applied["self_committed"] is True
     assert store.current_self() == revised
+    latest_self = store.self_history()[0]
+    assert evidence.id in latest_self.evidence_refs
     assert any(loop.title == "下次醒来确认这个承诺" for loop in store.open_loops())
 
 

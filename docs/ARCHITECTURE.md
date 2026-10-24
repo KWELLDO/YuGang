@@ -12,7 +12,7 @@
 
 1. L1 events are append-only (SQLite triggers) and hash-chained.
 2. L2 judgments require a falsifier and evidence refs; reviews are append-only.
-3. SELF.md changes are versions with a diff and reason; never silently overwrite.
+3. SELF.md changes are versions with a diff, reason, and real L1 evidence refs; never silently overwrite. Filling an empty section, adding a supported claim, and revising a refuted claim are all legitimate growth — not only "overturning" the old self.
 4. A wake never claims continuous experience; it records the time gap.
 5. Budget is enforced before the model call; failures are visible.
 

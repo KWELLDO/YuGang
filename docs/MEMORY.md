@@ -26,3 +26,12 @@ records the L1/L2 refs it was based on.
 Hybrid: FTS5 (trigram for Chinese) + recency + source/kind weights. Reading a memory is
 logged (`recall_log`); re-reading can later spawn a new judgment, but never mutates the
 original L1.
+
+### Reconfirmation, not engagement
+
+The design rule is that a memory becomes heavier when a later self re-reads it and
+explicitly uses it as evidence for a supported judgment. A `supported` judgment review
+increments `event_confirmations` for its evidence refs; recall applies a small bounded
+boost for those confirmations, and a smaller one for events recalled before. A refuted or
+needs-evidence review does not add confirmation. Recalls are not likes and never become a
+reward signal for content.

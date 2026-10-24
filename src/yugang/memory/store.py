@@ -283,15 +283,32 @@ class MemoryStore:
         elif not query:
             for ev in self.events(limit=max(limit * 4, 16)):
                 hits.append(RecallHit(ev, 0.5, ev.content[:160]))
-        # Recency + provenance weighting.
-        weighted: list[RecallHit] = []
+        # Recency + provenance + future-self confirmation weighting.
+        # An event that a later judgment was explicitly supported with is not just
+        # "old material": it has been re-read and re-confirmed. Likewise, events
+        # that were recalled before are slightly easier to reach again.
+        candidate_ids = {hit.event.id for hit in hits}
+        confirmations: dict[str, int] = {}
+        recall_counts: dict[str, int] = {}
+        if candidate_ids:
+            marks = ",".join("?" for _ in candidate_ids)
+            for row in self.conn.execute(
+                f"SELECT event_id, confirmations FROM event_confirmations WHERE event_id IN ({marks})",
+                tuple(candidate_ids),
+            ).fetchall():
+                confirmations[row["event_id"]] = int(row["confirmations"])
+            for row in self.conn.execute(
+                f"SELECT event_id, recall_count FROM recall_stats WHERE event_id IN ({marks})",
+                tuple(candidate_ids),
+            ).fetchall():
+                recall_counts[row["event_id"]] = int(row["recall_count"])
         source_weight = {
             "human": 1.15,
             "ai-observation": 1.0,
             "ai-interpretation": 0.85,
             "system": 0.7,
             "external": 0.9,
-        }.get(source or "", 1.0)
+        }
         kind_weight = {
             "diary": 1.1,
             "message": 1.1,
@@ -301,16 +318,20 @@ class MemoryStore:
             "wake": 0.6,
             "sleep": 0.6,
             "recall": 0.4,
-        }.get(kind or "", 1.0)
+        }
+        weighted: list[RecallHit] = []
         for hit in hits:
             try:
                 age_days = max(0.0, (now - parse_ts(hit.event.ts)).total_seconds() / 86400)
             except Exception:
                 age_days = 0.0
             recency = 1.0 / (1.0 + age_days / 30.0)
-            score = 0.6 * hit.score + 0.3 * recency + 0.1 * source_weight
-            score *= kind_weight
-            weighted.append(RecallHit(hit.event, score, hit.snippet))
+            score = 0.6 * hit.score + 0.3 * recency + 0.1 * source_weight.get(hit.event.source, 1.0)
+            score *= kind_weight.get(hit.event.kind, 1.0)
+            confirmed = confirmations.get(hit.event.id, 0)
+            recalled = recall_counts.get(hit.event.id, 0)
+            score *= 1.0 + min(0.30, 0.05 * confirmed) + min(0.10, 0.01 * recalled)
+            weighted.append(RecallHit(hit.event, score, hit.snippet, confirmed, recalled))
         weighted.sort(key=lambda h: (h.score, h.event.ts), reverse=True)
         weighted = weighted[:limit]
         if log:
@@ -318,10 +339,18 @@ class MemoryStore:
         return weighted
 
     def record_recall(self, query: str, event_ids: list[str], context: str | None = None) -> None:
+        when = now_iso()
         self.conn.execute(
             "INSERT INTO recall_log(id, ts, query, event_ids, context) VALUES (?, ?, ?, ?, ?)",
-            (new_id("recall"), now_iso(), query, canonical_json(event_ids), context),
+            (new_id("recall"), when, query, canonical_json(event_ids), context),
         )
+        for event_id in dict.fromkeys(event_ids):
+            self.conn.execute(
+                "INSERT INTO recall_stats(event_id, recall_count, last_recalled_at) VALUES (?, 1, ?) "
+                "ON CONFLICT(event_id) DO UPDATE SET recall_count = recall_count + 1, "
+                "last_recalled_at = excluded.last_recalled_at",
+                (event_id, when),
+            )
 
     # --------------------------------------------------------------- L2 judgments
 
@@ -386,6 +415,17 @@ class MemoryStore:
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (rid, judgment_id, when, verdict, canonical_json(refs), note, now_iso()),
         )
+        if verdict == "supported":
+            # The future self re-read these events and used them to support a
+            # judgment. That is the only automatic "reconfirmation" signal we
+            # trust; a mere recall is weaker and tracked separately.
+            for ref in dict.fromkeys(refs):
+                self.conn.execute(
+                    "INSERT INTO event_confirmations(event_id, confirmations, last_confirmed_at) VALUES (?, 1, ?) "
+                    "ON CONFLICT(event_id) DO UPDATE SET confirmations = confirmations + 1, "
+                    "last_confirmed_at = excluded.last_confirmed_at",
+                    (ref, when),
+                )
         row = self.conn.execute("SELECT * FROM judgment_reviews WHERE id = ?", (rid,)).fetchone()
         return JudgmentReview(
             id=row["id"],
