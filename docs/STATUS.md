@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：98 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤、醒来时的身体状态读数）。
+- 自动化测试：129 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、备份校验与恢复、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤、醒来时的身体状态读数）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -360,3 +360,20 @@
 - 随后收紧片段边界：`MemoryStore.events_between(..., include_start: bool = True)` 允许排除起点；睡去时用 `store.first_event_after(previous_sleep.ts, kind="wake")` 取上次睡去后的第一次醒来作为窗口起点；wake 事件现在的 meta 带 `trigger_event`（叫醒她的那条消息），窗口会从这条消息开始，避免片段只剩 wake/reply/diary 而丢掉自己的触发消息。因此上一段的 sleep/diary/stance 整理事件不再进入新片段的 `event_ids`；没有 wake 时回退到 previous sleep 之后（exclusive），第一条片段（无 previous sleep）仍从出生事件开始。新增回归测试 `test_episode_does_not_reabsorb_the_previous_sleep_boundary`，全量 **126 passed**。
 - 07:34:12 实机验证：叫醒她的消息 `evt_20261024T233412136014_c264b7` 写在 wake `evt_20261024T233412150452_951b37` 之前，wake meta 现在带 `trigger_event` 指向这条消息。07:34:19 睡去生成 `episode_20261024T233423703239_5c7b79`（标题「片段边界第三次修复：wake 记住触发消息」），4 个 event_ids 正好是 message → wake → reply → diary，`start_ts=2026-10-24T23:34:12.136060+00:00`，即触发消息自己的时间；上一段的 sleep/diary/stance 整理事件没有进入。更早的两个片段（`a92253`、`ef29e1`）保留旧边界，不改写历史。
 - 当前云端：events=270、episodes=6、SELF versions=5、budget 1.57984/5 元、asleep、chain ok。
+
+### 备份可恢复性 restore（07:45 CST，已部署并在云端做 drill）
+
+- 动机：每日备份此前只验证过「能生成、能重新打开」，没有验证过「真的能恢复成一段可用的身体」。备份没有经过恢复演练，就不算记忆可靠性。
+- 新增 `src/yugang/restore.py`：`resolve_backup()` 接受备份 db、manifest 或目录；`verify_backup()` 在只读副本上检查 SQLite `integrity_check`、事件数、L1 哈希链，并核对 manifest 的 `db_sha256` / `self_md_sha256` / `events`。
+- 新增 CLI `yugang restore --from <备份> [--dry-run] [--force]`：
+  - 默认拒绝覆盖已有身体；
+  - `--force` 会先把当前身体快照到 `<home>/backups/`（db + SELF.md，0600），再原子替换 db；
+  - 恢复后从数据库里的当前 SELF 版本重写 SELF.md，追加一条 `system/note` 记录恢复来源与前一份备份，再次校验哈希链；任何一步失败都会回滚到恢复前快照。
+  - `--dry-run` 只校验，不写任何文件。
+- 新增 `tests/test_restore.py` 三个测试：新身体完整恢复、拒绝覆盖与 `--force` 回滚、截断备份被拒绝且不碰目标。全量 **129 passed**；提交 `cfe56d9 feat(ops): verify and restore her body from a backup` 已 push origin master 并部署到 `/home/dafeiyu/yugang`。
+- 云端 drill（恢复写入只落在 drill home，未触碰生产 `/home/dafeiyu/.yugang` 的身体数据）：
+  - 备份 `yugang-20261024T210915831953.db`（157 events、SELF `self_20261024T200331015526_abb0f8`、manifest sha256 匹配、chain ok）；
+  - 先 `--dry-run` 通过；再恢复到新 home `/home/dafeiyu/.yugang-restore-drill`，结果 `events_before_note=157`、`events_after_note=158`、`chain_ok=true`、`self_origin=database`、`schema_version=6`；旧 v5 备份被当前 `init_db` 以 additive 迁移补出 `episodes` 表（0 行），说明恢复不依赖备份时的代码版本完全相同；
+  - 在 drill 身体里追加一条只属于演练的事件（159），再用同备份 `--force` 恢复：生成 `pre_restore_backup=/home/dafeiyu/.yugang-restore-drill/backups/yugang-20261024T234552186530.db`，恢复后 158 events，演练事件消失，恢复 note 仍在，chain ok。
+  - 生产 `yugang.service` 仍 active/asleep、events=270、未被恢复演练修改。
+- 文档：README 与 `docs/DEPLOY.md` 的备份节已改为「先停网关 → dry-run → restore → 启网关」，并写明默认拒绝覆盖、force 前自动备份、失败回滚；备份仍含她的记忆，目录权限保持 0700 / 0600。
