@@ -248,6 +248,7 @@ def test_fish_tank_page_requires_token_and_speaks_html(running):
         assert status == 200
         assert "text/html" in headers["Content-Type"]
         assert "鱼缸" in body and "/message" in body
+        assert 'id="beliefs"' in body and 'id="awareness"' in body
 
         status, headers, _body = _request_raw(
             port, "GET", "/", headers={"Authorization": "Bearer s3cret"}
@@ -256,6 +257,26 @@ def test_fish_tank_page_requires_token_and_speaks_html(running):
         assert "text/html" in headers["Content-Type"]
     finally:
         channel.stop()
+
+
+def test_tank_includes_judgment_and_card_status(running):
+    service, store, _cfg = running
+    evidence = store.append_event("human", "message", "该起床了")
+    store.add_judgment("我能读到这段记忆。", "如果 L1 里没有它，我仍能复述。", [evidence.id], 0.7)
+    card = store.add_awareness_card(
+        "T1",
+        "我注意到自己会先复述对方的措辞。",
+        "我可能更容易被外部措辞带走。",
+        "如果下次我复述的是 L1 而不是对方的话，就推翻。",
+        [evidence.id],
+        0.5,
+    )
+    store.review_awareness(card.id, "accepted", note="测试")
+    tank = service.tank()
+    assert tank["judgments"][0]["claim"] == "我能读到这段记忆。"
+    assert tank["judgments"][0]["status"] == "open"
+    assert tank["awareness"][0]["id"] == card.id
+    assert tank["awareness"][0]["status"] == "accepted"
 
 
 def _request_raw(port, method, path, headers=None):

@@ -39,6 +39,13 @@ model-supplied evidence ids. A malformed card is dropped with an audit note, not
 Open cards are included in the next wake context so they can be tested by later experience;
 a card can be reviewed as accepted, rejected, or needs-evidence.
 
+A repeated hypothesis does not become a second card or a second confirmation. When a new
+inline or explicit card's hypothesis is near-identical to an existing card (normalized,
+similarity >= 0.85, and not a flipped negation), the gateway attaches an "重复觉察未新建"
+note to the existing card and keeps its current status. An operator can run
+`yugang awareness-dedupe` to merge historical near-duplicates; the canonical card prefers
+accepted over open, and the rest become status `merged` with a note pointing at it.
+
 A card accepted during sleep can carry one structured `self_edit`. The system ignores any
 `evidence_refs` supplied inside that edit and uses the card's own L1 evidence instead, so a
 card-to-SELF change cannot smuggle in fabricated citations. The new SELF version's reason

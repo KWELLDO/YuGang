@@ -24,6 +24,7 @@ from .ids import day_key, now_iso, utcnow
 from .memory.store import MemoryStore
 from .runtime.mock import MockRuntime
 from .runtime.openai_compat import OpenAICompatRuntime
+from .selfmodel.awareness import merge_similar_cards
 from .selfmodel.self_md import bootstrap_self
 
 
@@ -219,6 +220,17 @@ def cmd_awareness(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_awareness_dedupe(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = MemoryStore(cfg.db_path)
+    try:
+        merged = merge_similar_cards(store, threshold=args.threshold)
+        _print_json({"ok": True, "merged": merged, "count": len(merged)})
+        return 0
+    finally:
+        store.close()
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     cfg = load_config(args)
     channels: list[Any] = []
@@ -411,6 +423,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trigger", default="T1", choices=["T1", "T2", "T3", "T4", "T5", "T6"])
     p.add_argument("--context", default="")
     p.set_defaults(func=cmd_awareness)
+
+    p = sub.add_parser("awareness-dedupe", help="合并同义觉察卡，重复不算新证据")
+    p.add_argument("--threshold", type=float, default=0.9)
+    p.set_defaults(func=cmd_awareness_dedupe)
 
     p = sub.add_parser("serve", help="启动常驻网关")
     p.set_defaults(func=cmd_serve)

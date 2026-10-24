@@ -98,6 +98,19 @@
 - 重启后 `/health` 返回 `{"ok": true, "awake": false, "paused": false, "worker_alive": true, "last_tick_age_seconds": ...}`；当时 events=102、budget 0.414662/5 元、channels=[http,email]。
 - 新增测试 `test_health_is_not_ok_when_the_worker_was_never_started`（503），并强化既有 HTTP 健康断言；全量 55 passed。
 
+### 鱼缸页展示 L2 与觉察卡（03:34 CST，代码完成）
+
+- `/tank` 现在给每条 L2 判断和每张觉察卡附上最新状态（judgment 的 open/supported/refuted/needs-evidence；card 的 open/accepted/rejected/needs-evidence），不改变任何存储语义。
+- 鱼缸页新增「她相信什么」和「还没验证的觉察」两段：L2 显示 claim、置信度、证据条数和 falsifier；觉察卡只显示仍为 open 的卡片，显示 trigger、置信度、证据条数和 falsifier。被推翻的判断不展示，避免把历史判断误读成当前立场。
+- 新增测试 test_tank_includes_judgment_and_card_status 与页面结构断言；全量 **56 passed**。
+
+### 重复觉察不新开卡、不算新确认（03:42 CST，代码完成）
+
+- 触发点：云端 `/tank` 里出现多张假设几乎相同的觉察卡（例如 `card_..._48f025` 与已接受的 `card_..._75f3ef`），还有重复的 L2 claim；这会把“重复看到”误读成“多次独立确认”。
+- `create_card` 现在先按归一化 hypothesis 查重（相似度 >= 0.85，且否定词不同的句子不算相似），命中时不新建卡，只在原卡上写一条 `open`/当前状态的 review note「重复觉察未新建：…（证据 …）」，并保留原状态。
+- 新增 `yugang awareness-dedupe [--threshold 0.9]`：把历史上的近义卡合并成一张 canonical 卡（优先 accepted，其次 open，其次最早），其余标为 `merged` 并指向 canonical；被合并的卡不再进入 open 卡列表，也不作为新证据。
+- 测试：`test_repeated_hypothesis_does_not_create_a_second_card`、`test_similar_card_never_merges_a_flipped_negation`、`test_merge_similar_cards_prefers_accepted_and_marks_the_rest`；全量 **59 passed**。
+
 ## 进行中 / 下一步
 
 - DSH 的定位已定（DECISIONS 020）：3199 只是运维控制台，不接成她的推理运行时，不写她的 L1；她的身体与推理运行时仍是 YuGang（3198）。

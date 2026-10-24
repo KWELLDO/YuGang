@@ -646,7 +646,7 @@ class MemoryStore:
         return AwarenessCard.from_row(row)
 
     def review_awareness(self, card_id: str, status: str, *, note: str | None = None, ts: str | None = None) -> None:
-        if status not in {"open", "accepted", "rejected", "needs-evidence"}:
+        if status not in {"open", "accepted", "rejected", "needs-evidence", "merged"}:
             raise ValueError(f"unknown card status: {status}")
         if not self.conn.execute("SELECT 1 FROM awareness_cards WHERE id = ?", (card_id,)).fetchone():
             raise ValueError(f"unknown card: {card_id}")

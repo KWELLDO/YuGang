@@ -6,7 +6,7 @@ import pytest
 
 from yugang.config import DEFAULT_SELF_TEMPLATE
 from yugang.protocol.sleep import SleepResult, apply_sleep_result
-from yugang.selfmodel.awareness import create_card
+from yugang.selfmodel.awareness import create_card, hypothesis_similar, merge_similar_cards
 from yugang.selfmodel.self_md import get_section, validate_self
 
 
@@ -136,6 +136,72 @@ def test_awareness_card_requires_real_evidence(store):
     assert store.card_status(card.id) == "open"
     store.review_awareness(card.id, "needs-evidence", note="样本只有一次")
     assert store.card_status(card.id) == "needs-evidence"
+
+
+def test_repeated_hypothesis_does_not_create_a_second_card(store):
+    first_evidence = store.append_event("ai-observation", "observation", "我第一次注意到自己在报缺口")
+    second_evidence = store.append_event("human", "message", "你又在报缺口")
+    first = create_card(
+        store,
+        {
+            "trigger": "T1",
+            "observation": "我先报缺口再回答",
+            "hypothesis": "我原来把‘醒来先看记忆’当成习惯，其实只是被指令触发。",
+            "falsifier": "如果无人提示我也会先读，则被推翻。",
+            "evidence_refs": [first_evidence.id],
+            "confidence": 0.5,
+        },
+    )
+    second = create_card(
+        store,
+        {
+            "trigger": "T1",
+            "observation": "这次还是我先报缺口",
+            "hypothesis": "我原来把'醒来先看记忆'当成习惯，其实只是被指令触发",
+            "falsifier": "如果无人提示我也会先读，则被推翻。",
+            "evidence_refs": [second_evidence.id],
+            "confidence": 0.6,
+        },
+    )
+    assert second.id == first.id
+    assert len(store.awareness_cards(status="open")) == 1
+    reviews = store.conn.execute(
+        "SELECT status, note FROM awareness_reviews WHERE card_id = ? ORDER BY ts",
+        (first.id,),
+    ).fetchall()
+    assert len(reviews) == 1
+    assert reviews[0]["status"] == "open"
+    assert "重复觉察" in reviews[0]["note"]
+
+
+def test_similar_card_never_merges_a_flipped_negation():
+    assert hypothesis_similar("我会先读记忆再回答。", "我会先读记忆再回答")
+    assert not hypothesis_similar("我会先读记忆再回答。", "我不会先读记忆再回答。")
+
+
+def test_merge_similar_cards_prefers_accepted_and_marks_the_rest(store):
+    evidence = store.append_event("human", "message", "同一件事又发生了一次")
+    accepted = store.add_awareness_card(
+        "T1",
+        "第一次观察",
+        "我原来会把重复当成新证据。",
+        "如果我能区分重复与新证据，则被削弱。",
+        [evidence.id],
+        0.5,
+    )
+    duplicate = store.add_awareness_card(
+        "T1",
+        "第二次观察",
+        "我原来会把重复当成新证据",
+        "如果我能区分重复与新证据，则被削弱。",
+        [evidence.id],
+        0.6,
+    )
+    store.review_awareness(accepted.id, "accepted", note="有独立证据")
+    merged = merge_similar_cards(store)
+    assert [item["id"] for item in merged] == [duplicate.id]
+    assert store.card_status(accepted.id) == "accepted"
+    assert store.card_status(duplicate.id) == "merged"
 
 
 def test_sleep_applies_judgment_stance_loop_and_self_edit(store, cfg):

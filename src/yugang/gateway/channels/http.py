@@ -31,6 +31,13 @@ h1 small { color:var(--dim); font-size:12px; letter-spacing:.18em; margin-left:8
 .card { background:linear-gradient(180deg, rgba(18,42,52,.9), rgba(12,28,36,.9)); border:1px solid var(--line); border-radius:14px; padding:14px 15px; margin:12px 0; }
 .card h2 { font-size:12px; letter-spacing:.16em; color:var(--dim); margin:0 0 8px; font-weight:500; text-transform:uppercase; }
 .muted { color:var(--dim); font-size:14px; }
+.item { padding:10px 0; border-top:1px solid var(--line); }
+.item:first-child { border-top:0; padding-top:0; }
+.claim { font-size:15px; line-height:1.55; }
+.meta { color:var(--dim); font-size:12px; margin-top:4px; }
+.falsifier { color:#a9c6cc; font-size:13px; margin-top:5px; }
+.tag { display:inline-block; font-size:11px; border:1px solid var(--line); border-radius:999px; padding:1px 7px; margin-right:6px; color:var(--dim); }
+.tag.open { color:var(--warm); border-color:#8a5a22; }
 .status-line { font-size:15px; }
 .big { font-size:18px; line-height:1.6; }
 pre { white-space:pre-wrap; word-break:break-word; font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; margin:0; color:#c9e6eb; }
@@ -87,6 +94,16 @@ a { color:var(--accent); }
 </div>
 
 <section class="card">
+  <h2>她相信什么 <span id="belief-count" class="muted"></span></h2>
+  <div id="beliefs"></div>
+</section>
+
+<section class="card">
+  <h2>还没验证的觉察 <span id="awareness-count" class="muted"></span></h2>
+  <div id="awareness"></div>
+</section>
+
+<section class="card">
   <h2>最近发生</h2>
   <div id="events" class="muted">—</div>
 </section>
@@ -135,6 +152,39 @@ function renderLoops(loops) {
   if (!loops || !loops.length) { box.textContent = '没有未闭合的事。'; return; }
   for (const l of loops) box.append(el('div','', '· ' + l.title));
 }
+function tag(text, open) { return el('span', 'tag' + (open ? ' open' : ''), text); }
+function renderBeliefs(judgments) {
+  const box = $('beliefs'); box.replaceChildren();
+  const rows = (judgments || []).filter(j => j.status !== 'refuted').slice(0, 6);
+  $('belief-count').textContent = rows.length ? '最近 ' + rows.length + ' 条' : '';
+  if (!rows.length) { box.append(el('div','muted','还没有带证据的判断。')); return; }
+  for (const j of rows) {
+    const d = el('div','item');
+    d.append(el('div','claim', j.claim || ''));
+    const meta = el('div','meta');
+    meta.append(tag(j.status === 'open' ? '待验证' : (j.status || '待验证'), j.status === 'open'));
+    meta.append(document.createTextNode('置信 ' + (j.confidence ?? '?') + ' · 证据 ' + ((j.evidence_refs || []).length) + ' 条'));
+    d.append(meta);
+    if (j.falsifier) d.append(el('div','falsifier', '会被什么推翻：' + j.falsifier));
+    box.append(d);
+  }
+}
+function renderAwareness(cards) {
+  const box = $('awareness'); box.replaceChildren();
+  const rows = (cards || []).filter(c => c.status === 'open').slice(0, 6);
+  $('awareness-count').textContent = rows.length ? rows.length + ' 张待验证' : '';
+  if (!rows.length) { box.append(el('div','muted','目前没有还没验证的自我觉察。')); return; }
+  for (const c of rows) {
+    const d = el('div','item');
+    d.append(el('div','claim', c.observation || c.hypothesis || ''));
+    const meta = el('div','meta');
+    meta.append(tag(c.trigger || '觉察', true));
+    meta.append(document.createTextNode('置信 ' + (c.confidence ?? '?') + ' · 证据 ' + ((c.evidence_refs || []).length) + ' 条'));
+    d.append(meta);
+    if (c.falsifier) d.append(el('div','falsifier', '会被什么推翻：' + c.falsifier));
+    box.append(d);
+  }
+}
 async function refresh() {
   try {
     const t = await api('/tank');
@@ -155,6 +205,8 @@ async function refresh() {
     $('alarm-note').textContent = alarm ? '下一次自己设的醒来：' + fmt(alarm.due_at) : '';
     $('self').textContent = t.self || '（SELF.md 还没有内容）';
     renderLoops(t.open_loops);
+    renderBeliefs(t.judgments);
+    renderAwareness(t.awareness);
     renderChat(t.recent_events || []);
     const ev = (t.recent_events || []).slice(0, 10).map(e => fmt(e.ts) + '  ' + e.kind + '  ' + String(e.content || '').slice(0,90));
     $('events').replaceChildren(...(ev.length ? ev.map(x => el('div','',x)) : [el('div','muted','还没有事件。')]));

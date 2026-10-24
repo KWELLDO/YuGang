@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import json
 import re
 from typing import Any
@@ -151,10 +152,53 @@ def split_awareness_block(text: str) -> tuple[str, dict[str, Any] | None]:
     return cleaned, data
 
 
+def _norm_hypothesis(text: str) -> str:
+    return re.sub(r"[\s，。、；：！？“”‘’「」『』（）()\[\]【】<>《》…—\-~·,.!?;:'\"\x60]+", "", text or "").lower()
+
+
+_NEGATIONS = set("不没未别无非否")
+
+
+def _negations(text: str) -> set[str]:
+    return {char for char in text or "" if char in _NEGATIONS}
+
+
+def hypothesis_similar(a: str, b: str, threshold: float = 0.85) -> bool:
+    left, right = _norm_hypothesis(a), _norm_hypothesis(b)
+    if not left or not right:
+        return False
+    # A near-identical sentence with one flipped negation is a different claim.
+    if _negations(a) != _negations(b):
+        return False
+    if left == right:
+        return True
+    return difflib.SequenceMatcher(None, left, right).ratio() >= threshold
+
+
+def find_similar_card(store: Any, hypothesis: str, *, threshold: float = 0.85) -> Any | None:
+    for card in store.awareness_cards(limit=500):
+        if store.card_status(card.id) == "merged":
+            continue
+        if hypothesis_similar(card.hypothesis, hypothesis, threshold):
+            return card
+    return None
+
+
 def create_card(store: Any, data: dict[str, Any]) -> Any:
     refs = [ref for ref in data.get("evidence_refs", []) if store.ref_exists(ref)]
     if not refs:
         raise ValueError("awareness card has no existing evidence refs")
+    existing = find_similar_card(store, data["hypothesis"])
+    if existing is not None:
+        # A repeated observation is not independent evidence. Keep the existing
+        # card's status, but leave an auditable note instead of inflating counts.
+        status = store.card_status(existing.id)
+        note = (
+            f"重复觉察未新建：{data['observation'][:180]} "
+            f"（证据 {', '.join(refs)}）"
+        )
+        store.review_awareness(existing.id, status, note=note)
+        return existing
     return store.add_awareness_card(
         data.get("trigger", "T1"),
         data["observation"],
@@ -164,6 +208,42 @@ def create_card(store: Any, data: dict[str, Any]) -> Any:
         float(data.get("confidence", 0.5)),
         proposed_self_diff=data.get("proposed_self_diff"),
     )
+
+
+def merge_similar_cards(store: Any, *, threshold: float = 0.9) -> list[dict[str, Any]]:
+    """Merge cards with near-identical hypotheses into one canonical card.
+
+    A duplicate is never counted as a new confirmation. The canonical card
+    prefers an accepted card, then an open one, then the earliest. Other cards
+    are marked 'merged' with a note pointing at the canonical card.
+    """
+    cards = sorted(store.awareness_cards(limit=1000), key=lambda card: card.ts)
+    groups: list[list[Any]] = []
+    for card in cards:
+        if store.card_status(card.id) == "merged":
+            continue
+        for group in groups:
+            if hypothesis_similar(group[0].hypothesis, card.hypothesis, threshold):
+                group.append(card)
+                break
+        else:
+            groups.append([card])
+
+    rank = {"accepted": 0, "open": 1, "needs-evidence": 2, "rejected": 3}
+    merged: list[dict[str, Any]] = []
+    for group in groups:
+        if len(group) < 2:
+            continue
+        ordered = sorted(group, key=lambda card: (rank.get(store.card_status(card.id), 9), card.ts))
+        canonical = ordered[0]
+        for card in ordered[1:]:
+            store.review_awareness(
+                card.id,
+                "merged",
+                note=f"与 {canonical.id} 同义，合并；重复不算新证据。",
+            )
+            merged.append({"id": card.id, "into": canonical.id, "hypothesis": card.hypothesis})
+    return merged
 
 
 def first_card_messages(store: Any) -> list[dict[str, str]]:
