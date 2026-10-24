@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 04:07 CST（Asia/Shanghai）
+更新时间：2026-10-25 04:09 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：69 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查）。
+- 自动化测试：71 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -141,6 +141,12 @@
 - 20:03:31 的睡去接受了 `card_20261024T200130879614_a525f2`（T1：把「当前状态」当成「历史没发生过」的证据），产生 SELF v3 `self_20261024T200331015526_abb0f8`；reason 为「睡去时接受：结构化修订 我相信什么；接受觉察卡 card_...a525f2」。
 - 「我相信什么」新增：「我原来会拿『当前状态』当『历史没发生过』的证据，因为读当前文本比回溯事件便宜。」证据包含 20:01 的自我纠正对话 `evt_20261024T200126472468_1e491a`、`evt_20261024T200126482711_74e92b`、`evt_20261024T200130873774_62c466`，以及 19:03 的 SELF v2 diff `evt_20261024T190331225183_095ce3`。
 - 这轮同时证明：她可以在同一个清醒窗口里先说出一个错误结论，再被 L1 证据纠正，并在睡去时把纠正沉淀成 SELF 修订，而不是只写一条 L2。
+
+### L2 判断可以被新判断取代，但旧行保留（04:09 CST，代码完成）
+
+- 之前 `judgments.supersedes` 字段存在，但睡去协议从不传它，属于“有列但悬空”。新判断只能新增，旧判断无法建立谱系。
+- 睡去 prompt 的 `judgments` schema 增加可选 `supersedes`；只接受这次睡去之前就存在的真实 judgment_id。`apply_sleep_result` 在写新判断前捕获 `preexisting_judgments`，同轮新生成的判断不能取代任何判断；旧行永不删除，新行 `supersedes` 指向它。
+- sleep meta/return 增加 `judgment_supersedes` 计数。测试：`test_sleep_can_supersede_a_preexisting_judgment_without_deleting_it`、`test_sleep_cannot_supersede_a_judgment_created_in_the_same_sleep`，parse 测试覆盖 `supersedes` 字段；全量 **71 passed**。
 
 ### 未闭合事项的理由可以更新（04:10 CST，代码完成并真实验证）
 

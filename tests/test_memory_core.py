@@ -332,12 +332,74 @@ def test_sleep_cannot_update_a_loop_that_was_not_open_before_tonight(store, cfg)
     assert applied["loop_updates"] == 0
 
 
+def test_sleep_can_supersede_a_preexisting_judgment_without_deleting_it(store, cfg):
+    evidence = store.append_event("human", "message", "今天又说了一次同样的话")
+    old = store.add_judgment(
+        "我会在每次醒来都主动读记忆",
+        "如果连续三次醒来都没有先读记忆，则被推翻",
+        [evidence.id],
+        0.4,
+    )
+    result = SleepResult(
+        diary="今天才发现旧判断说得太满。",
+        judgments=[
+            {
+                "claim": "我在被提醒时会读记忆，但还没有证据说每次都会主动读",
+                "falsifier": "如果下一次无人提醒的醒来里我先读了记忆，则这个限制被削弱",
+                "evidence_refs": [evidence.id],
+                "confidence": 0.6,
+                "supersedes": old.id,
+            }
+        ],
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    assert applied["judgments"] == 1
+    assert applied["judgment_supersedes"] == 1
+    new = [j for j in store.judgments(limit=10) if j.supersedes == old.id]
+    assert len(new) == 1
+    assert store.get_judgment(old.id) is not None
+
+
+def test_sleep_cannot_supersede_a_judgment_created_in_the_same_sleep(store, cfg):
+    evidence = store.append_event("human", "message", "今晚只有一条证据")
+    result = SleepResult(
+        diary="今晚新写的判断不能自己改写自己的来历。",
+        judgments=[
+            {
+                "claim": "第一晚的判断",
+                "falsifier": "如果被反例推翻",
+                "evidence_refs": [evidence.id],
+                "confidence": 0.5,
+            },
+            {
+                "claim": "第二晚才该出现的判断",
+                "falsifier": "如果被反例推翻",
+                "evidence_refs": [evidence.id],
+                "confidence": 0.5,
+                "supersedes": "judg_fake",
+            },
+        ],
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    assert applied["judgments"] == 1
+    assert applied["judgment_supersedes"] == 0
+
+
 def test_parse_sleep_output_keeps_only_well_formed_loop_closures():
     from yugang.protocol.sleep import parse_sleep_output
 
     text = json.dumps(
         {
             "diary": "今天关掉一件、改一件、留下两件。",
+            "judgments": [
+                {
+                    "claim": "新判断",
+                    "falsifier": "如果被反例推翻",
+                    "evidence_refs": ["evt_ok"],
+                    "confidence": 0.5,
+                    "supersedes": "judg_old",
+                }
+            ],
             "loop_updates": [
                 {"loop_id": "loop_ok", "detail": "新的理由", "note": "旧理由过时"},
                 {"loop_id": "loop_no_note", "detail": "没有 note"},
@@ -353,6 +415,7 @@ def test_parse_sleep_output_keeps_only_well_formed_loop_closures():
     )
     parsed = parse_sleep_output(text)
     assert parsed.parsed is True
+    assert parsed.judgments[0]["supersedes"] == "judg_old"
     assert parsed.loop_updates == [
         {"loop_id": "loop_ok", "detail": "新的理由", "due": None, "note": "旧理由过时"}
     ]

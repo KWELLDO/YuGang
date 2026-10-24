@@ -14,7 +14,9 @@ audited record — not a silent delete.
 
 A judgment is a claim plus a falsifier plus evidence refs. It is immutable. Reviews
 (supported / refuted / needs-evidence) are appended separately; current status is derived
-from the latest review. A new judgment can supersede an old one.
+from the latest review. A new judgment may name a preexisting judgment in `supersedes`;
+this is a lineage link, not a delete — the old row stays and the new one points at it. A
+judgment created in the same sleep cannot supersede anything, and an unknown id is rejected.
 
 Sleep is where old judgments are re-read. The sleep prompt lists judgments whose latest
 status is `open` or `needs-evidence`, and she may review them with real L1 refs. A review
