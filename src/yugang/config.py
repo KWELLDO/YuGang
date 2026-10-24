@@ -56,6 +56,26 @@ class EmailConfig:
 
 
 @dataclass
+class OneBotConfig:
+    """OneBot v11 bridge (QQ via NapCat, or any compatible implementation).
+
+    Disabled by default: the bridge is only useful once a human has logged a
+    dedicated QQ account into NapCat. The webhook is loopback-only by default
+    and fails closed unless an allowed user id is configured.
+    """
+
+    enabled: bool = False
+    api_base: str = "http://127.0.0.1:3000"
+    access_token_env: str = "YUGANG_ONEBOT_TOKEN"
+    webhook_host: str = "127.0.0.1"
+    webhook_port: int = 3197
+    webhook_secret_env: str = "YUGANG_ONEBOT_WEBHOOK_SECRET"
+    allowed_user_ids: list[str] = field(default_factory=list)
+    request_timeout_seconds: int = 30
+    max_message_chars: int = 1500
+
+
+@dataclass
 class HttpConfig:
     enabled: bool = True
     host: str = "127.0.0.1"
@@ -100,6 +120,7 @@ class Config:
 
     http: HttpConfig = field(default_factory=HttpConfig)
     email: EmailConfig = field(default_factory=EmailConfig)
+    onebot: OneBotConfig = field(default_factory=OneBotConfig)
 
     @classmethod
     def default(cls, home: str | None = None) -> "Config":
@@ -125,6 +146,8 @@ class Config:
                 cfg.http = HttpConfig(**value)
             elif key == "email" and isinstance(value, dict):
                 cfg.email = EmailConfig(**value)
+            elif key == "onebot" and isinstance(value, dict):
+                cfg.onebot = OneBotConfig(**value)
             elif hasattr(cfg, key):
                 setattr(cfg, key, value)
         cfg.home = str(Path(cfg.home).expanduser())
@@ -163,6 +186,12 @@ class Config:
 
     def email_password(self) -> str | None:
         return os.environ.get(self.email.password_env)
+
+    def onebot_token(self) -> str | None:
+        return os.environ.get(self.onebot.access_token_env)
+
+    def onebot_webhook_secret(self) -> str | None:
+        return os.environ.get(self.onebot.webhook_secret_env)
 
     def redacted(self) -> dict[str, Any]:
         data = asdict(self)

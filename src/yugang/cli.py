@@ -19,6 +19,7 @@ from .gateway.budget import BudgetGuard
 from .gateway.channels.base import NullChannel
 from .gateway.channels.email import EmailChannel
 from .gateway.channels.http import HttpChannel
+from .gateway.channels.onebot import OneBotChannel
 from .gateway.service import GatewayService
 from .ids import day_key, now_iso, utcnow
 from .memory.store import MemoryStore
@@ -265,6 +266,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
         if not cfg.email_password():
             print(f"警告：{cfg.email.password_env} 未设置，邮件频道的发送会失败。", file=sys.stderr)
         channels.append(EmailChannel(cfg.email))
+    if cfg.onebot.enabled:
+        if not cfg.onebot_webhook_secret() and cfg.onebot.webhook_host not in ("127.0.0.1", "::1", "localhost"):
+            print(
+                f"警告：{cfg.onebot.webhook_secret_env} 未设置，OneBot webhook 绑定非 loopback 会被拒绝启动。",
+                file=sys.stderr,
+            )
+        if not cfg.onebot.allowed_user_ids:
+            print("警告：OneBot 已启用但没有 allowed_user_ids，所有消息都会被拒绝（fail closed）。", file=sys.stderr)
+        channels.append(OneBotChannel(cfg.onebot))
     service = make_service(cfg, mock=args.mock, channels=channels)
     stop = threading.Event()
 

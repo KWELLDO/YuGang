@@ -5,8 +5,14 @@
 - **Memory core** (`src/yugang/memory`): SQLite, append-only events with hash chain, FTS5 recall, L2 judgments + reviews, L3 stance snapshots.
 - **Self model** (`src/yugang/selfmodel`): SELF.md parse/render/diff/commit; awareness cards, including an optional inline awareness block in a live reply that the gateway strips, validates, and records.
 - **Protocols** (`src/yugang/protocol`): wake context/prompt; sleep consolidation prompt + parser + apply.
-- **Gateway** (`src/yugang/gateway`): always-on body, wake window state machine, budget guard, HTTP/email channels.
+- **Gateway** (`src/yugang/gateway`): always-on body, wake window state machine, budget guard, HTTP/email/OneBot channels.
 - **Runtime** (`src/yugang/runtime`): model adapter interface; mock for tests; OpenAI-compatible adapter for deployment.
+
+## Channels
+
+- `http`: authenticated request/response and the fish tank page; loopback only by default.
+- `email`: IMAP poll + SMTP reply, subject-tag and sender allowlist; never marks a stranger's mail read.
+- `onebot`: OneBot v11 private-message webhook for a local NapCat/QQ bridge; explicit user allowlist, secret required off loopback, no group messages, no public inbound port.
 
 ## Invariants
 

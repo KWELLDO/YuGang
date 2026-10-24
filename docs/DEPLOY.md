@@ -163,6 +163,75 @@ host with the same credentials and check that `polled` is 0 when no tagged mail 
 Send a test message to the mailbox with a subject like `[YuGang] 我来看你了`; her reply
 goes back to the same thread.
 
+## OneBot / QQ bridge
+
+The `onebot` channel is a OneBot v11 private-message bridge for a local
+[NapCat](https://github.com/NapNeko/NapCatQQ) (or compatible) process. It is
+disabled by default. It does not open a public port and it never accepts group
+messages.
+
+Topology:
+
+```
+QQ app ──▶ Tencent ──▶ NapCat (local) ── HTTP API 127.0.0.1:3000
+                              │
+                              └── reverse HTTP event ──▶ 127.0.0.1:3197/onebot/event
+                                                              │
+                                                              ▼
+                                                        yugang gateway
+```
+
+Config in `/home/dafeiyu/.yugang/config.json`:
+
+```json
+{
+  "onebot": {
+    "enabled": true,
+    "api_base": "http://127.0.0.1:3000",
+    "webhook_host": "127.0.0.1",
+    "webhook_port": 3197,
+    "webhook_secret_env": "YUGANG_ONEBOT_WEBHOOK_SECRET",
+    "access_token_env": "YUGANG_ONEBOT_TOKEN",
+    "allowed_user_ids": ["YOUR_QQ_NUMBER"],
+    "request_timeout_seconds": 30,
+    "max_message_chars": 1500
+  }
+}
+```
+
+Put both secrets in `/etc/dafeiyu-dsh.env` (root-only, 0600):
+
+```sh
+YUGANG_ONEBOT_WEBHOOK_SECRET=<long-random-secret>
+YUGANG_ONEBOT_TOKEN=<the HTTP API token NapCat is configured with>
+```
+
+NapCat side:
+
+- enable its HTTP server on `127.0.0.1:3000` (not `0.0.0.0`) and set its
+  access token to `YUGANG_ONEBOT_TOKEN`;
+- configure the reverse HTTP event target to
+  `http://127.0.0.1:3197/onebot/event`, with
+  `Authorization: Bearer <YUGANG_ONEBOT_WEBHOOK_SECRET>` (the bridge also
+  accepts `X-YuGang-Secret` and `X-Signature: sha1=...` /
+  `X-Signature: sha256=...` HMAC of the raw body);
+- add only the intended QQ number(s) to `allowed_user_ids`. An empty allowlist
+  rejects every message (fail closed);
+- do not enable group messages. The bridge rejects `message_type != private`.
+
+Test the webhook locally without QQ:
+
+```bash
+curl -sS -X POST http://127.0.0.1:3197/onebot/event \
+  -H "Content-Type: application/json" \
+  -H "X-YuGang-Secret: $YUGANG_ONEBOT_WEBHOOK_SECRET" \
+  -d '{"post_type":"message","message_type":"private","self_id":"999","user_id":"YOUR_QQ_NUMBER","message_id":1,"message":[{"type":"text","data":{"text":"在吗"}}]}'
+```
+
+It returns `{"ok":true,"accepted":true,...}`; her reply goes through
+`send_private_msg` to the same QQ number. If delivery fails, the gateway writes
+a `system/error` event and the message remains visible in L1.
+
 ## Private-network options
 
 1. **SSH tunnel** (works today, no new dependency).

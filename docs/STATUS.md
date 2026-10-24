@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 05:10 CST（Asia/Shanghai）
+更新时间：2026-10-25 05:20 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：83 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
+- 自动化测试：91 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -222,3 +222,10 @@
 - diary 引用了两条操作员更正 `evt_20261024T205817062558_a70286`、`evt_20261024T205936590770_740704`，明确写“我把读到的旧记忆和当前视图混了，而且没有先查当前视图就下结论”。
 - 她把自己 20:52 生成的卡 `card_20261024T205231332060_9bfcc3` 标为 `rejected`，因为前提“supersedes 没落成”不成立；下一句意图是“下次判断某条取代是否落成前，先查当前视图，不拿读到的旧记忆当当前状态”。
 - 这件事同时验证了：操作员更正会进入 L1；她下次醒来能读到并据此推翻自己的错误判断；错误卡不会静默消失，而是留下 rejected 复核记录。
+### OneBot / QQ IM 桥（05:20 CST，代码完成，默认关闭）
+
+- 新增 `src/yugang/gateway/channels/onebot.py`：OneBot v11 私聊 webhook + `send_private_msg` 回信；默认绑定 `127.0.0.1:3197`，只接受 `message_type=private`，显式 `allowed_user_ids` 白名单，空名单 fail closed；非 loopback 绑定必须有共享 secret。
+- 鉴权支持 `Authorization: Bearer <secret>`、`X-YuGang-Secret`、`X-Signature: sha1=... / sha256=...`（HMAC 原始 body）；无 secret 时只接受 loopback。
+- 回信按 `max_message_chars` 分片，失败返回 False，由 `_finalize` 写 `system/error`，不会静默丢回复。
+- 新增 8 个测试：事件解析、分片、secret fail-closed、坏 secret/未授权用户/群消息/自己消息、API 鉴权与长文本分片、webhook→L1→回复→OneBot API 的端到端、配置加载。全量 **91 passed**。
+- 尚未在云端启用：需要一个专用 QQ 号登录 NapCat 并扫码授权；代码与文档已就绪，NapCat 配置见 `docs/DEPLOY.md`。
