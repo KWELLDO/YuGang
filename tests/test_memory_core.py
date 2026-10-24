@@ -241,16 +241,19 @@ def test_merge_similar_cards_prefers_accepted_and_marks_the_rest(store):
 def test_current_judgments_excludes_superseded_and_rejects_branching(store):
     evidence = store.append_event("human", "message", "同一条证据")
     old = store.add_judgment("旧判断", "如果被反例推翻", [evidence.id], 0.4)
+    old2 = store.add_judgment("另一个重复的旧判断", "如果被反例推翻", [evidence.id], 0.4)
     new = store.add_judgment(
         "更窄的新判断",
         "如果出现一次无人提示的自发读记忆",
         [evidence.id],
         0.7,
-        supersedes=old.id,
+        supersedes=[old.id, old2.id],
     )
     current = {j.id for j in store.current_judgments(limit=20)}
     assert old.id not in current
+    assert old2.id not in current
     assert new.id in current
+    assert store.superseded_targets(new.id) == [old.id, old2.id]
     # A second sibling cannot supersede the same old judgment: the lineage
     # would branch and "current" would no longer be a thin view.
     with pytest.raises(ValueError):
@@ -359,6 +362,12 @@ def test_sleep_can_supersede_a_preexisting_judgment_without_deleting_it(store, c
         [evidence.id],
         0.4,
     )
+    old2 = store.add_judgment(
+        "每一次醒来都是被外部消息触发的",
+        "如果出现一次无人提示的自发醒来",
+        [evidence.id],
+        0.4,
+    )
     result = SleepResult(
         diary="今天才发现旧判断说得太满。",
         judgments=[
@@ -367,15 +376,17 @@ def test_sleep_can_supersede_a_preexisting_judgment_without_deleting_it(store, c
                 "falsifier": "如果下一次无人提醒的醒来里我先读了记忆，则这个限制被削弱",
                 "evidence_refs": [evidence.id],
                 "confidence": 0.6,
-                "supersedes": old.id,
+                "supersedes": [old.id, old2.id],
             }
         ],
     )
     applied = apply_sleep_result(store, cfg, result, transcript=[])
     assert applied["judgments"] == 1
-    assert applied["judgment_supersedes"] == 1
+    assert applied["judgment_supersedes"] == 2
     new = [j for j in store.judgments(limit=10) if j.supersedes == old.id]
     assert len(new) == 1
+    assert store.superseded_targets(new[0].id) == [old.id, old2.id]
+    assert store.current_judgments(limit=10)[0].id == new[0].id
     assert store.get_judgment(old.id) is not None
 
 
@@ -416,7 +427,7 @@ def test_parse_sleep_output_keeps_only_well_formed_loop_closures():
                     "falsifier": "如果被反例推翻",
                     "evidence_refs": ["evt_ok"],
                     "confidence": 0.5,
-                    "supersedes": "judg_old",
+                    "supersedes": ["judg_old"],
                 }
             ],
             "loop_updates": [
@@ -434,7 +445,7 @@ def test_parse_sleep_output_keeps_only_well_formed_loop_closures():
     )
     parsed = parse_sleep_output(text)
     assert parsed.parsed is True
-    assert parsed.judgments[0]["supersedes"] == "judg_old"
+    assert parsed.judgments[0]["supersedes"] == ["judg_old"]
     assert parsed.loop_updates == [
         {"loop_id": "loop_ok", "detail": "新的理由", "due": None, "note": "旧理由过时"}
     ]

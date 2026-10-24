@@ -148,6 +148,7 @@
 - 睡去 prompt 的 `judgments` schema 增加可选 `supersedes`；只接受这次睡去之前就存在的真实 judgment_id。`apply_sleep_result` 在写新判断前捕获 `preexisting_judgments`，同轮新生成的判断不能取代任何判断；旧行永不删除，新行 `supersedes` 指向它。
 - sleep meta/return 增加 `judgment_supersedes` 计数。测试：`test_sleep_can_supersede_a_preexisting_judgment_without_deleting_it`、`test_sleep_cannot_supersede_a_judgment_created_in_the_same_sleep`，parse 测试覆盖 `supersedes` 字段。
 - `MemoryStore.current_judgments()` 排除已被取代的判断；醒来上下文、睡去复核、鱼缸页改用这一薄视图，`judgments()` 仍返回完整历史。`add_judgment` 拒绝再次取代一条已被取代的判断，避免谱系分叉。新增 `test_current_judgments_excludes_superseded_and_rejects_branching`；全量 **72 passed**。
+- 20:14 的真实睡去暴露单目标 `supersedes` 不够：她明确说要同时取代 `b58cad` 与 `9bb4a2`，但 schema 只能填一个 id，结果新判断没有建立任何取代链接（`judgment_supersedes=0`）。新增 `judgment_supersessions(new_id, old_id, created_at)` 表（schema v2，additive），`supersedes` 接受字符串数组；一条新判断可合并多条旧判断，`current_judgments()` 同时排除链接表与 legacy 列里的目标。`apply_sleep_result` 校验所有目标都必须是睡去前已存在的判断，`judgment_supersedes` 按链接数计数。测试改为双目标并断言 `superseded_targets`；全量仍 **72 passed**。
 
 ### 未闭合事项的理由可以更新（04:10 CST，代码完成并真实验证）
 

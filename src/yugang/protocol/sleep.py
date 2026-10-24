@@ -117,7 +117,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 请输出：
 {{
   "diary": "第一人称日记，包含时间缺口与你今天注意到的事；不要写「我梦到了」",
-  "judgments": [{{"claim": "...", "falsifier": "如果...则被推翻", "evidence_refs": ["evt_..."], "confidence": 0.0, "supersedes": "judg_... 或 null"}}],
+  "judgments": [{{"claim": "...", "falsifier": "如果...则被推翻", "evidence_refs": ["evt_..."], "confidence": 0.0, "supersedes": ["judg_..."]}}],
   "judgment_reviews": [{{"judgment_id": "judg_...", "verdict": "supported|refuted|needs-evidence", "evidence_refs": ["evt_..."], "note": "今天的哪条证据支持或推翻了它"}}],
   "stance": "一句当前立场（薄，不写人设）或 null",
   "open_loops": [{{"title": "...", "detail": "...", "due": null}}],
@@ -132,7 +132,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 
 规则：
 - evidence_refs 必须是上面真实出现的事件 id；没有证据的判断不要写。
-- judgments 是可选的“新判断”；如果它取代了上面某条真实 L2，用 supersedes 填那条 judgment_id，旧判断保留在历史里，不会被删除。只能取代这次睡去之前就存在的判断；不取代就填 null。
+- judgments 是可选的“新判断”；如果它取代了上面某条真实 L2，用 supersedes 填那些 judgment_id（可以是数组，一条新判断可以合并多条旧判断），旧判断保留在历史里，不会被删除。只能取代这次睡去之前就存在的判断，且一条旧判断只能被取代一次；不取代就填 []。
 - judgment_reviews 只能引用上面 open / needs-evidence L2 的真实 judgment_id；每条复核至少引用一个真实 L1 事件，且不要只引用这次生成的日记。没有新证据就留空，不要为了关闭而复核。
 - self_edits 最多 2 条；section 只能是：我是谁 / 我相信什么 / 我在做什么 / 我的边界 / 未闭合的事 / 最近的变化；op 只能是 append（追加）或 replace（替换该节正文）。
 - 不要输出完整 SELF.md。没有值得改的就给空数组并设 accept_self_edit=false。
@@ -185,7 +185,15 @@ def parse_sleep_output(text: str) -> SleepResult:
             confidence = max(0.0, min(1.0, float(item.get("confidence", 0.5))))
         except (TypeError, ValueError):
             confidence = 0.5
-        supersedes = str(item.get("supersedes") or "").strip() or None
+        raw_supersedes = item.get("supersedes")
+        if isinstance(raw_supersedes, str):
+            supersedes = [raw_supersedes.strip()] if raw_supersedes.strip() else []
+        elif isinstance(raw_supersedes, list):
+            supersedes = list(dict.fromkeys(
+                str(x).strip() for x in raw_supersedes if str(x).strip()
+            ))
+        else:
+            supersedes = []
         judgments.append({
             "claim": claim,
             "falsifier": falsifier,
@@ -348,8 +356,13 @@ def apply_sleep_result(
         refs = [ref for ref in item["evidence_refs"] if store.ref_exists(ref)]
         if not refs:
             continue
-        supersedes = item.get("supersedes")
-        if supersedes and supersedes not in preexisting_judgments:
+        raw_supersedes = item.get("supersedes") or []
+        if isinstance(raw_supersedes, str):
+            supersedes = [raw_supersedes]
+        else:
+            supersedes = [str(x) for x in raw_supersedes if str(x).strip()]
+        supersedes = list(dict.fromkeys(supersedes))
+        if any(target not in preexisting_judgments for target in supersedes):
             # A judgment created in this same sleep cannot supersede anything:
             # that would let tonight's output rewrite its own lineage.
             continue
@@ -360,12 +373,11 @@ def apply_sleep_result(
                 refs,
                 float(item.get("confidence", 0.5)),
                 trigger="sleep",
-                supersedes=supersedes,
+                supersedes=supersedes or None,
             )
             self_refs.extend(refs)
             applied_judgments += 1
-            if supersedes:
-                applied_supersedes += 1
+            applied_supersedes += len(supersedes)
         except ValueError:
             continue
     applied_judgment_reviews = 0

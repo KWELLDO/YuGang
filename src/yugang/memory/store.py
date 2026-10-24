@@ -416,7 +416,7 @@ class MemoryStore:
         confidence: float,
         *,
         trigger: str | None = None,
-        supersedes: str | None = None,
+        supersedes: str | Iterable[str] | None = None,
         ts: str | None = None,
     ) -> Judgment:
         if not claim.strip():
@@ -429,25 +429,50 @@ class MemoryStore:
         for ref in refs:
             if not self.ref_exists(ref):
                 raise ValueError(f"unknown evidence ref: {ref}")
-        if supersedes:
-            if not self.get_judgment(supersedes):
-                raise ValueError(f"unknown supersedes judgment: {supersedes}")
+        if supersedes is None:
+            targets: list[str] = []
+        elif isinstance(supersedes, str):
+            targets = [supersedes]
+        else:
+            targets = list(dict.fromkeys(str(t) for t in supersedes if str(t).strip()))
+        for target in targets:
+            if not self.get_judgment(target):
+                raise ValueError(f"unknown supersedes judgment: {target}")
             # Keep the lineage linear: an already-superseded judgment cannot be
             # superseded again by a sibling, or the "current" set would branch.
             row = self.conn.execute(
-                "SELECT 1 FROM judgments WHERE supersedes = ? LIMIT 1", (supersedes,)
+                "SELECT 1 FROM judgment_supersessions WHERE old_id = ? LIMIT 1", (target,)
             ).fetchone()
-            if row:
-                raise ValueError(f"judgment already superseded: {supersedes}")
+            legacy = self.conn.execute(
+                "SELECT 1 FROM judgments WHERE supersedes = ? LIMIT 1", (target,)
+            ).fetchone()
+            if row or legacy:
+                raise ValueError(f"judgment already superseded: {target}")
         jid = new_id("judg")
         when = ts or now_iso()
+        # Keep the first target in the legacy column for one-to-one readers;
+        # every target is also recorded in judgment_supersessions.
+        legacy_supersedes = targets[0] if targets else None
         self.conn.execute(
             "INSERT INTO judgments(id, ts, claim, falsifier, evidence_refs, confidence, trigger, supersedes, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (jid, when, claim.strip(), falsifier.strip(), canonical_json(refs), float(confidence), trigger, supersedes, now_iso()),
+            (jid, when, claim.strip(), falsifier.strip(), canonical_json(refs), float(confidence), trigger, legacy_supersedes, now_iso()),
         )
+        for target in targets:
+            self.conn.execute(
+                "INSERT INTO judgment_supersessions(new_id, old_id, created_at) VALUES (?, ?, ?)",
+                (jid, target, now_iso()),
+            )
         row = self.conn.execute("SELECT * FROM judgments WHERE id = ?", (jid,)).fetchone()
         return Judgment.from_row(row)
+
+    def superseded_targets(self, judgment_id: str) -> list[str]:
+        """Old judgment ids that this new judgment replaces (possibly several)."""
+        rows = self.conn.execute(
+            "SELECT old_id FROM judgment_supersessions WHERE new_id = ? ORDER BY rowid",
+            (judgment_id,),
+        ).fetchall()
+        return [r["old_id"] for r in rows]
 
     def get_judgment(self, judgment_id: str) -> Judgment | None:
         row = self.conn.execute("SELECT * FROM judgments WHERE id = ?", (judgment_id,)).fetchone()
@@ -531,7 +556,8 @@ class MemoryStore:
         """
         sql = (
             "SELECT j.* FROM judgments j "
-            "WHERE NOT EXISTS (SELECT 1 FROM judgments s WHERE s.supersedes = j.id) "
+            "WHERE NOT EXISTS (SELECT 1 FROM judgment_supersessions s WHERE s.old_id = j.id) "
+            "AND NOT EXISTS (SELECT 1 FROM judgments s2 WHERE s2.supersedes = j.id) "
             "AND COALESCE((SELECT r.verdict FROM judgment_reviews r "
             "WHERE r.judgment_id = j.id ORDER BY r.ts DESC, r.rowid DESC LIMIT 1), 'open') "
         )

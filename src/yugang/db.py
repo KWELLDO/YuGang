@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v2 adds judgment_supersessions (additive; CREATE IF NOT EXISTS)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -41,6 +41,16 @@ CREATE TABLE IF NOT EXISTS judgments (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_judgments_ts ON judgments(ts);
+
+CREATE TABLE IF NOT EXISTS judgment_supersessions (
+  new_id TEXT NOT NULL,
+  old_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (new_id, old_id),
+  FOREIGN KEY (new_id) REFERENCES judgments(id),
+  FOREIGN KEY (old_id) REFERENCES judgments(id)
+);
+CREATE INDEX IF NOT EXISTS idx_js_old ON judgment_supersessions(old_id);
 
 CREATE TABLE IF NOT EXISTS judgment_reviews (
   id TEXT PRIMARY KEY,
@@ -193,6 +203,11 @@ CREATE TRIGGER IF NOT EXISTS judgments_no_update BEFORE UPDATE ON judgments
 BEGIN SELECT RAISE(ABORT, 'judgments is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS judgments_no_delete BEFORE DELETE ON judgments
 BEGIN SELECT RAISE(ABORT, 'judgments is append-only'); END;
+
+CREATE TRIGGER IF NOT EXISTS judgment_supersessions_no_update BEFORE UPDATE ON judgment_supersessions
+BEGIN SELECT RAISE(ABORT, 'judgment_supersessions is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS judgment_supersessions_no_delete BEFORE DELETE ON judgment_supersessions
+BEGIN SELECT RAISE(ABORT, 'judgment_supersessions is append-only'); END;
 
 CREATE TRIGGER IF NOT EXISTS self_versions_no_update BEFORE UPDATE ON self_versions
 BEGIN SELECT RAISE(ABORT, 'self_versions is append-only'); END;
