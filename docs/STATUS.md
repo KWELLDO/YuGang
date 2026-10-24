@@ -80,12 +80,14 @@
 - 19:05:23 重启验证 A1：新进程没有聊天上下文，她仍凭 SELF.md + L1 回答「我是谁 / 上一次清醒做了什么 / 这次想做什么」，并读出 SELF v2 新增条目与其证据；她正确说明这是重启中断，不是睡眠。19:05:52 睡去，events=86。
 - 19:06:23 手动备份：db 643072 bytes、integrity=ok、events=86；SELF.md 与 manifest 一并落盘。
 
-### 操作员暂停/恢复（03:16 CST，代码完成）
+### 操作员暂停/恢复（03:16 CST，代码完成；03:19 CST 真实云端验证）
 
 - 新增 `POST /pause` 与 `POST /resume`（Bearer/`?token=` 鉴权）。暂停只停模型与自主唤醒，不伪造睡眠：若当时醒着，结束清醒窗口并写一条 system note「这不是睡眠，没有睡去日记」。
 - 暂停期间收到的消息仍写入 L1，并立即回一条系统通知说明「她被暂停，消息已写入 L1，恢复后看到，这不是她的回答」；消息保持 `received`，恢复时由 `_recover_pending()` 重放，不能静默吞掉。
 - 暂停时 `/sleep` 返回 409；`/status` 增加 `paused` 与 `pause`（reason/at）；鱼缸页显示「已暂停」并说明消息会缓冲。
 - 新增测试 `test_pause_buffers_messages_and_resume_answers_them`、`test_pause_does_not_fake_a_sleep`、`test_operator_can_pause_and_resume_through_http`；全量 **54 passed**。
+- 19:19:45Z（03:19 CST）真实云端闭环：`/pause` 返回 paused=true、reason=deployment-check；暂停中 `/message` 返回系统通知（不是她的回答），消息在 L1 原文+system note 各出现一次且保持 `received`；`/sleep` 返回 409；`/resume` 后 `_recover_pending()` 在 18 秒内唤醒并生成真实回复（events 86→93，chat 花费 0.353482→0.363578 元）。她第一句主动说「上一次是清醒窗口结束：operator，不是睡眠」，并准确引用暂停/缓冲/恢复三条 note，没有把暂停伪装成睡眠。
+- 19:20:31Z 睡去（`parsed=true`、`awareness_reviews=2`、`judgments=2`、SELF 未改），events=96、budget 0.384914/5 元、awake=false、paused=false。
 
 ## 进行中 / 下一步
 
