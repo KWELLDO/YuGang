@@ -270,6 +270,20 @@ def cmd_practices(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_episodes(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = MemoryStore(cfg.db_path)
+    try:
+        if args.query:
+            rows = store.search_episodes(args.query, limit=args.limit)
+        else:
+            rows = store.episodes(limit=args.limit)
+        _print_json({"ok": True, "episodes": rows, "count": store.episode_count()})
+        return 0
+    finally:
+        store.close()
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     cfg = load_config(args)
     channels: list[Any] = []
@@ -499,6 +513,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--status", choices=["active", "dropped", "all"], default="active")
     p.add_argument("--limit", type=int, default=50)
     p.set_defaults(func=cmd_practices)
+
+    p = sub.add_parser("episodes", help="查看生活片段（叙事索引）")
+    p.add_argument("--query", default="", help="按标题/摘要搜索")
+    p.add_argument("--limit", type=int, default=20)
+    p.set_defaults(func=cmd_episodes)
 
     p = sub.add_parser("serve", help="启动常驻网关")
     p.set_defaults(func=cmd_serve)

@@ -41,6 +41,7 @@ class WakeContext:
     judgments: list[Any] = field(default_factory=list)
     practices: list[Any] = field(default_factory=list)
     self_history: list[Any] = field(default_factory=list)
+    episodes: list[Any] = field(default_factory=list)
     body: dict[str, Any] | None = None
 
 
@@ -129,6 +130,9 @@ def build_wake_context(
     # oldest open loop, instead of skipping recall entirely.
     recall_query = query or last_intent or (loops[0].title if loops else "")
     recalled = store.recall(recall_query, limit=int(getattr(config, "recall_limit", 6)), now=now, log=False) if recall_query else []
+    episodes = store.search_episodes(recall_query, limit=4) if recall_query else []
+    if not episodes:
+        episodes = store.episodes(limit=4)
     tz_name = getattr(config, "timezone", "Asia/Shanghai")
     try:
         local_now = now.astimezone(ZoneInfo(tz_name))
@@ -206,6 +210,21 @@ def build_wake_context(
             lines.append(previous.diff[:1200].rstrip())
     else:
         lines.append("（还没有改过自己；现在的 SELF.md 是出生材料。）")
+    lines.append("")
+    lines.append("## 我最近的生活片段（叙事索引，不是当前判断）")
+    if episodes:
+        for episode in episodes:
+            lines.append(
+                f"- [{episode.id}] {episode.start_ts} → {episode.end_ts}：{episode.title}"
+            )
+            lines.append(f"  {episode.summary[:400]}")
+            lines.append(
+                f"  依据 {len(episode.event_ids)} 条 L1；整理自 {episode.source_event or '未知事件'}；"
+                f"来源 {episode.origin}。"
+            )
+        lines.append("这些片段是对真实 L1 的索引，不是新的判断；如果片段和原始 L1 冲突，以 L1 为准。")
+    else:
+        lines.append("（还没有形成过生活片段。）")
     lines.append("")
     lines.append("## 我现在的立场（L3）")
     if stance:
@@ -307,6 +326,7 @@ def build_wake_context(
         recent=recent,
         stance=stance,
         judgments=judgments,
+        episodes=episodes,
         practices=practices,
         self_history=self_history,
         body=body,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 5  # v2 judgment lineage, v3 practices, v4 practice checks, v5 citation confirmations
+SCHEMA_VERSION = 6  # v2 judgment lineage, v3 practices, v4 practice checks, v5 citations, v6 episodes
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -220,6 +220,20 @@ CREATE TABLE IF NOT EXISTS citation_confirmations (
 CREATE INDEX IF NOT EXISTS idx_citation_event ON citation_confirmations(event_id);
 CREATE INDEX IF NOT EXISTS idx_citation_source ON citation_confirmations(source_event);
 
+CREATE TABLE IF NOT EXISTS episodes (
+  id TEXT PRIMARY KEY,
+  ts TEXT NOT NULL,
+  start_ts TEXT NOT NULL,
+  end_ts TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  event_ids TEXT NOT NULL,
+  origin TEXT NOT NULL DEFAULT 'model',
+  source_event TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_episodes_ts ON episodes(ts DESC);
+
 CREATE TABLE IF NOT EXISTS redactions (
   id TEXT PRIMARY KEY,
   ts TEXT NOT NULL,
@@ -268,6 +282,11 @@ CREATE TRIGGER IF NOT EXISTS citation_confirmations_no_update BEFORE UPDATE ON c
 BEGIN SELECT RAISE(ABORT, 'citation_confirmations is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS citation_confirmations_no_delete BEFORE DELETE ON citation_confirmations
 BEGIN SELECT RAISE(ABORT, 'citation_confirmations is append-only'); END;
+
+CREATE TRIGGER IF NOT EXISTS episodes_no_update BEFORE UPDATE ON episodes
+BEGIN SELECT RAISE(ABORT, 'episodes is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS episodes_no_delete BEFORE DELETE ON episodes
+BEGIN SELECT RAISE(ABORT, 'episodes is append-only'); END;
 """
 
 

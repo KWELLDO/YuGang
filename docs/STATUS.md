@@ -339,3 +339,11 @@
 - 她主动区分了「你要求我引的」与「无人提示时自己回去查」：前者只证明日记可检索、内容自洽，不证明她会自发去翻。这个区分被原样保留，没有被系统改写成更强的结论。
 - 真实闭环后 events=217；`/status` 的 budget 与 chain 正常；本次没有新 L2 或 SELF 修订，citation 只影响回忆权重，不自动生成判断。
 
+### 生活片段 episodes（07:12 CST，代码完成，未部署）
+
+- 新增 schema v6：`episodes(id, ts, start_ts, end_ts, title, summary, event_ids, origin, source_event, created_at)`，触发器拒绝 update/delete；它只是 L1 之上的叙事索引，不替代 L1，也不自动改 SELF.md。
+- 每次睡去时，系统取上一次 `sleep` 到这次睡去之间的真实 L1 事件；模型可给 `episode: {title, summary}`，没给则由日记生成 `origin="diary"` 的索引，不编造。`event_ids` 是实际使用的 L1 集合，`source_event` 是创建它的 sleep 事件。
+- 醒来上下文新增「我最近的生活片段（叙事索引，不是当前判断）」，按 recall query 取最近 4 条；没有 query 时取最近片段。提示词明确：片段与原始 L1 冲突时以 L1 为准。
+- 鱼缸页新增「她记得的片段」，显示标题、时间范围、依据条数、来源和摘要；`yugang episodes [--query] [--limit]` 提供只读 CLI；`/tank` 返回 `episodes` 与 `episode_count`。
+- 新增 `tests/test_episodes.py`：append-only 与搜索、episode 解析、睡去生成并绑定 window+diary、无 model episode 时 fallback `origin=diary`、wake 与 tank 暴露。页面测试新增 `id="episodes"`。全量 **123 passed**，页面 JS 通过 `node --check`。
+- 尚未 commit、未部署；云端仍是 a4e4e18 / schema v5。下一步部署 schema v6，并做一次真实睡去，确认 episode 只绑定真实事件、醒来能读到它。

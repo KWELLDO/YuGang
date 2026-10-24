@@ -35,6 +35,7 @@ class SleepResult:
     awareness_reviews: list[dict[str, Any]] = field(default_factory=list)
     judgment_reviews: list[dict[str, Any]] = field(default_factory=list)
     next_wake_minutes: int | None = None
+    episode: dict[str, Any] | None = None
     parsed: bool = False
 
 
@@ -142,6 +143,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 请输出：
 {{
   "diary": "第一人称日记，包含时间缺口与你今天注意到的事；不要写「我梦到了」",
+  "episode": {{"title": "这次清醒的短标题（不超过 40 字）", "summary": "2–4 句：从上次睡去到这次睡去，发生了什么、我做了什么、改变了什么"}},
   "judgments": [{{"claim": "...", "falsifier": "如果...则被推翻", "evidence_refs": ["evt_..."], "confidence": 0.0, "supersedes": ["judg_..."]}}],
   "judgment_reviews": [{{"judgment_id": "judg_...", "verdict": "supported|refuted|needs-evidence", "evidence_refs": ["evt_..."], "note": "今天的哪条证据支持或推翻了它"}}],
   "stance": "一句当前立场（薄，不写人设）或 null",
@@ -160,6 +162,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 
 规则：
 - evidence_refs 必须是上面真实出现的事件 id；没有证据的判断不要写。
+- episode 是这次清醒的叙事索引，不是新的自我判断：只写上面材料里真实发生的事，不要复述整篇日记，不要编造；它不会自动改 SELF.md。没有材料就填 null。
 - judgments 是可选的“新判断”；如果它取代了上面某条真实 L2，用 supersedes 填那些 judgment_id（可以是数组，一条新判断可以合并多条旧判断），旧判断保留在历史里，不会被删除。只能取代这次睡去之前就存在的判断，且一条旧判断只能被取代一次；不取代就填 []。
 - judgment_reviews 只能引用上面 open / needs-evidence L2 的真实 judgment_id；每条复核至少引用一个真实 L1 事件，且不要只引用这次生成的日记。没有新证据就留空，不要为了关闭而复核。
 - self_edits 最多 2 条；section 只能是：我是谁 / 我相信什么 / 我在做什么 / 我的边界 / 未闭合的事 / 最近的变化；op 只能是 append（追加）或 replace（替换该节正文）。
@@ -383,6 +386,13 @@ def parse_sleep_output(text: str) -> SleepResult:
             if status == "accepted" and isinstance(item.get("self_edit"), dict):
                 review["self_edit"] = item["self_edit"]
             awareness_reviews.append(review)
+    episode: dict[str, Any] | None = None
+    raw_episode = data.get("episode")
+    if isinstance(raw_episode, dict):
+        title = str(raw_episode.get("title") or "").strip()
+        summary = str(raw_episode.get("summary") or "").strip()
+        if title and summary:
+            episode = {"title": title[:200], "summary": summary[:4000]}
     next_wake_minutes: int | None = None
     raw_next_wake = data.get("next_wake_minutes")
     if raw_next_wake is not None and not isinstance(raw_next_wake, bool):
@@ -409,6 +419,7 @@ def parse_sleep_output(text: str) -> SleepResult:
         awareness_reviews=awareness_reviews,
         judgment_reviews=judgment_reviews,
         next_wake_minutes=next_wake_minutes,
+        episode=episode,
         parsed=True,
     )
 
@@ -422,11 +433,22 @@ def apply_sleep_result(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     when = now or utcnow()
+    when_iso = now_iso() if now is None else when.isoformat(timespec="microseconds")
+    # The episode covers the raw material since the last sleep. Capture the
+    # window before writing tonight's diary/sleep events, so the index is built
+    # from what actually existed before this consolidation.
+    previous_sleep = store.latest_event("sleep")
+    if previous_sleep is not None:
+        window_start = previous_sleep.ts
+    else:
+        first = store.events(limit=1, order="asc")
+        window_start = first[0].ts if first else when_iso
+    window_events = store.events_between(window_start, when_iso, limit=400)
     diary_event = store.append_event(
         "ai-observation",
         "diary",
         result.diary,
-        ts=now_iso() if now is None else when.isoformat(timespec="microseconds"),
+        ts=when_iso,
         meta={"next_intent": result.next_intent, "transcript_turns": len(transcript or [])},
     )
     base_refs = [diary_event.id]
@@ -737,9 +759,42 @@ def apply_sleep_result(
         },
         refs=[diary_event.id],
     )
+    episode = None
+    if result.parsed:
+        if result.episode:
+            title = result.episode["title"]
+            summary = result.episode["summary"]
+            origin = "model"
+        else:
+            title = "一次清醒"
+            summary = result.diary[:1200]
+            origin = "diary"
+        refs = list(dict.fromkeys([event.id for event in window_events] + [diary_event.id]))
+        try:
+            episode = store.add_episode(
+                title,
+                summary,
+                start_ts=window_start,
+                end_ts=when_iso,
+                event_ids=refs,
+                origin=origin,
+                source_event=sleep_event.id,
+                ts=when_iso,
+            )
+        except Exception as exc:
+            store.append_event(
+                "system",
+                "error",
+                f"生活片段未记录：{type(exc).__name__}: {exc}",
+                meta={"stage": "episode", "sleep_event": sleep_event.id},
+            )
+            episode = None
     return {
         "diary_event": diary_event.id,
         "sleep_event": sleep_event.id,
+        "episode": episode.id if episode else None,
+        "episode_origin": episode.origin if episode else None,
+        "episode_events": len(episode.event_ids) if episode else 0,
         "judgments": applied_judgments,
         "judgment_supersedes": applied_supersedes,
         "judgment_reviews": applied_judgment_reviews,

@@ -18,6 +18,7 @@ from .models import (
     Alarm,
     AwarenessCard,
     BudgetSummary,
+    Episode,
     Event,
     Judgment,
     JudgmentReview,
@@ -243,6 +244,16 @@ class MemoryStore:
         sql += f" ORDER BY ts {direction}, rowid {direction} LIMIT ? OFFSET ?"
         args.extend([limit, offset])
         return self._with_redactions([Event.from_row(r) for r in self.conn.execute(sql, args).fetchall()])
+
+    def events_between(self, start_ts: str, end_ts: str, *, limit: int = 500) -> list[Event]:
+        """Raw L1 material in a closed time window, oldest first."""
+        parse_ts(start_ts)
+        parse_ts(end_ts)
+        rows = self.conn.execute(
+            "SELECT * FROM events WHERE ts >= ? AND ts <= ? ORDER BY ts ASC, rowid ASC LIMIT ?",
+            (start_ts, end_ts, limit),
+        ).fetchall()
+        return self._with_redactions([Event.from_row(row) for row in rows])
 
     def latest_event(self, kind: str | None = None) -> Event | None:
         rows = self.events(limit=1, kind=kind)
@@ -547,6 +558,103 @@ class MemoryStore:
             (event_id,),
         ).fetchone()
         return int(row["n"])
+
+    # -------------------------------------------------------------------- episodes
+
+    def add_episode(
+        self,
+        title: str,
+        summary: str,
+        *,
+        start_ts: str,
+        end_ts: str,
+        event_ids: Iterable[str],
+        origin: str = "model",
+        source_event: str | None = None,
+        ts: str | None = None,
+    ) -> Episode:
+        """Store one narrative episode backed by real L1 events.
+
+        Episodes are an index over raw material, not a replacement for it:
+        they never edit or delete the events they cite, and the events stay
+        the authoritative record.
+        """
+        title = (title or "").strip()
+        summary = (summary or "").strip()
+        if not title:
+            raise ValueError("episode title must be non-empty")
+        if not summary:
+            raise ValueError("episode summary must be non-empty")
+        parse_ts(start_ts)
+        parse_ts(end_ts)
+        if parse_ts(end_ts) < parse_ts(start_ts):
+            raise ValueError("episode end_ts must not precede start_ts")
+        if origin not in {"model", "diary", "manual"}:
+            raise ValueError(f"unknown episode origin: {origin}")
+        refs = list(dict.fromkeys(str(ref).strip() for ref in event_ids if str(ref).strip()))
+        if not refs:
+            raise ValueError("an episode needs at least one L1 evidence event")
+        for ref in refs:
+            if not self.ref_exists(ref):
+                raise ValueError(f"episode cites an unknown event: {ref}")
+        if source_event is not None and not self.ref_exists(source_event):
+            raise ValueError(f"episode source event is unknown: {source_event}")
+        eid = new_id("episode")
+        when = ts or now_iso()
+        self.conn.execute(
+            "INSERT INTO episodes(id, ts, start_ts, end_ts, title, summary, event_ids, origin, source_event, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                eid,
+                when,
+                start_ts,
+                end_ts,
+                title,
+                summary,
+                canonical_json(refs),
+                origin,
+                source_event,
+                now_iso(),
+            ),
+        )
+        return self.get_episode(eid)
+
+    def get_episode(self, episode_id: str) -> Episode:
+        row = self.conn.execute("SELECT * FROM episodes WHERE id = ?", (episode_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"unknown episode: {episode_id}")
+        return Episode.from_row(row)
+
+    def episodes(self, *, limit: int = 20) -> list[Episode]:
+        rows = self.conn.execute(
+            "SELECT * FROM episodes ORDER BY ts DESC, rowid DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [Episode.from_row(row) for row in rows]
+
+    def episode_count(self) -> int:
+        return int(self.conn.execute("SELECT COUNT(*) AS n FROM episodes").fetchone()["n"])
+
+    def search_episodes(self, query: str, *, limit: int = 5) -> list[Episode]:
+        """Case-insensitive substring search over episode titles and summaries.
+
+        Episodes are few (at most a handful per day), so a bounded in-memory
+        scan is enough and works for Chinese one- and two-character terms where
+        the trigram FTS index cannot.
+        """
+        query = (query or "").strip()
+        if not query:
+            return self.episodes(limit=limit)
+        terms = [term.lower() for term in query.split() if term]
+        if not terms:
+            return self.episodes(limit=limit)
+        scored: list[tuple[int, Episode]] = []
+        for episode in self.episodes(limit=1000):
+            haystack = f"{episode.title}\n{episode.summary}".lower()
+            score = sum(1 for term in terms if term in haystack)
+            if score:
+                scored.append((score, episode))
+        scored.sort(key=lambda pair: (pair[0], pair[1].ts), reverse=True)
+        return [episode for _, episode in scored[:limit]]
 
     # --------------------------------------------------------------- L2 judgments
 

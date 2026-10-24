@@ -190,3 +190,19 @@ an `evt_…` id that already existed **before the current waking window**, the g
 
 If writing the citation row fails, the reply has already been delivered; the failure is a
 `system/error` in L1, never a reason to swallow the answer.
+
+## Episodes (narrative index)
+
+L1 is the raw stream; L2/L3/SELF.md are judgments. An episode sits between them: a short,
+append-only narrative of one waking window, created when she sleeps.
+
+- At sleep, the gateway remembers the previous `sleep` event and collects the real L1 events
+  between it and the new sleep. The model may provide `episode: {title, summary}`; if it does
+  not, the system writes a diary-index fallback with `origin="diary"` instead of inventing one.
+- `episodes` rows are append-only (triggers reject update/delete). `event_ids` is the exact
+  set of L1 events used; `source_event` is the sleep event that created the index. There is no
+  automatic SELF.md edit tied to an episode.
+- Waking reads episodes by the recall query (falling back to the most recent ones) and shows
+  them as "narrative index, not current judgment"; when an episode conflicts with raw L1, L1 wins.
+- The fish tank shows the episode list and how many L1 events each one summarizes. A title and
+  summary are an index over evidence, never a replacement for the evidence.

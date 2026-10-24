@@ -106,6 +106,11 @@ a { color:var(--accent); }
 </section>
 
 <section class="card">
+  <h2>她记得的片段 <span id="episode-count" class="muted"></span></h2>
+  <div id="episodes"></div>
+</section>
+
+<section class="card">
   <h2>她怎么改过自己 <span id="self-history-count" class="muted"></span></h2>
   <div id="self-history"></div>
 </section>
@@ -205,6 +210,22 @@ function renderStance(s) {
   d.append(meta);
   box.append(d);
 }
+function renderEpisodes(episodes, count) {
+  const box = $('episodes'); box.replaceChildren();
+  const rows = (episodes || []).slice(0, 6);
+  $('episode-count').textContent = count ? '共 ' + count + ' 段' : '';
+  if (!rows.length) { box.append(el('div','muted','她还没有形成生活片段。')); return; }
+  const origins = {model:'睡去时整理', diary:'日记索引', manual:'手动记录'};
+  for (const ep of rows) {
+    const d = el('div','item');
+    d.append(el('div','claim', ep.title || '一次清醒'));
+    const meta = el('div','meta');
+    meta.append(document.createTextNode(fmt(ep.start_ts) + ' → ' + fmt(ep.end_ts) + ' · 依据 ' + (ep.event_count || (ep.event_ids || []).length) + ' 条 L1 · ' + (origins[ep.origin] || ep.origin || '')));
+    d.append(meta);
+    if (ep.summary) d.append(el('div','falsifier', String(ep.summary).slice(0,500)));
+    box.append(d);
+  }
+}
 function renderSelfHistory(versions) {
   const box = $('self-history'); box.replaceChildren();
   const rows = (versions || []).slice(0, 5);
@@ -290,6 +311,7 @@ async function refresh() {
     }
     $('self').textContent = t.self || '（SELF.md 还没有内容）';
     renderStance(t.stance);
+    renderEpisodes(t.episodes, t.episode_count);
     renderSelfHistory(t.self_history);
     renderLoops(t.open_loops);
     renderBeliefs(t.judgments);

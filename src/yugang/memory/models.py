@@ -268,6 +268,35 @@ class Message:
 
 
 @dataclass(frozen=True)
+class Episode:
+    id: str
+    ts: str
+    start_ts: str
+    end_ts: str
+    title: str
+    summary: str
+    event_ids: tuple[str, ...]
+    origin: str
+    source_event: str | None
+    created_at: str
+
+    @classmethod
+    def from_row(cls, row: Any) -> "Episode":
+        return cls(
+            id=row["id"],
+            ts=row["ts"],
+            start_ts=row["start_ts"],
+            end_ts=row["end_ts"],
+            title=row["title"],
+            summary=row["summary"],
+            event_ids=tuple(_loads(row["event_ids"], [])),
+            origin=row["origin"],
+            source_event=row["source_event"],
+            created_at=row["created_at"],
+        )
+
+
+@dataclass(frozen=True)
 class RecallHit:
     event: Event
     score: float
