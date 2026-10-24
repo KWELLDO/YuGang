@@ -235,3 +235,11 @@
 - `status()` 新增 `chain: {ok, bad_event}`：每次查询都跑 `verify_chain()`，L1 哈希链断裂时 `/status` 直接显示 `ok=false` 和第一个坏事件 id；不缓存，避免用事件数量掩盖同数量的内容篡改。
 - 更新 `test_tank_includes_judgment_and_card_status`（断言 stance 与 chain）与鱼缸页 HTML 测试（断言 `id="stance"`）；新增 `test_tank_reports_a_broken_l1_chain`（直接插入一条 prev_hash 错误的事件，断言 `chain.ok=false` 且 `bad_event` 指向它）；全量 **92 passed**，页面 JS 通过 `node --check`。
 - 云端验证（05:27 CST）：`/status` 返回 `chain: {"ok": true, "bad_event": null}`；`/tank` 返回当前立场 `stance_20261024T210736945471_d8bcd5`（45 字）；鱼缸页 HTML 含「她现在的立场」；服务 active、awake=false。
+
+### 鱼缸页显示上一次日记与下次意图（05:35 CST，已实现）
+
+- 之前鱼缸页「上一次睡去」只显示 sleep 事件的摘要（如「睡去：整理今天的材料」），她的第一人称日记藏在 `diary_event` 里，页面上看不到。
+- `tank()` 的 `last_sleep` 现在会解析 `meta.diary_event`，附加 `diary_event`、`diary_ts`、`diary` 和 `next_intent`；sleep 事件本身仍保留。
+- 鱼缸页新增「上一次的日记」卡片，显示日记全文（`textContent`，无 HTML 注入）和「下次醒来想做」；没有日记时写「她还没有写过睡去日记。」
+- 新增 `test_tank_surfaces_the_last_diary_and_next_intent`；鱼缸页 HTML 测试断言 `id="diary"` 与 `id="next-intent"`；全量 **93 passed**；页面 JS 通过 `node --check`。
+- 云端部署后验证：`/tank` 的 `last_sleep.diary_event` 是 `evt_20261024T210736931084_1839af`，`diary` 为当次第一人称日记，`next_intent` 为「先查当前视图，不拿旧记忆当当前状态」；页面 HTML 含「上一次的日记」。

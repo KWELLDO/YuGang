@@ -722,7 +722,17 @@ class GatewayService:
     def tank(self) -> dict[str, Any]:
         self_text = self.store.current_self() or ""
         stance = self.store.current_stance()
-        last_sleep = self.store.latest_event("sleep")
+        last_sleep_event = self.store.latest_event("sleep")
+        last_sleep: dict[str, Any] | None = None
+        if last_sleep_event is not None:
+            last_sleep = _jsonable(last_sleep_event)
+            meta = last_sleep_event.meta or {}
+            diary_id = meta.get("diary_event")
+            diary = self.store.get_event(str(diary_id)) if diary_id else None
+            last_sleep["diary_event"] = diary.id if diary else None
+            last_sleep["diary_ts"] = diary.ts if diary else None
+            last_sleep["diary"] = diary.content if diary else None
+            last_sleep["next_intent"] = meta.get("next_intent")
         judgments = [
             {
                 **_jsonable(j),
@@ -750,7 +760,7 @@ class GatewayService:
                 }
                 for v in self.store.self_history(limit=5)
             ],
-            "last_sleep": _jsonable(last_sleep) if last_sleep else None,
+            "last_sleep": last_sleep,
             "open_loops": _jsonable(self.store.open_loops(limit=20)),
             "alarms": _jsonable(self.store.pending_alarms(limit=20)),
             "awareness": cards,

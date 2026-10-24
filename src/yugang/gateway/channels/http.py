@@ -74,6 +74,12 @@ a { color:var(--accent); }
 </section>
 
 <section class="card">
+  <h2>上一次的日记 <span id="diary-ts" class="muted"></span></h2>
+  <pre id="diary">—</pre>
+  <div id="next-intent" class="muted" style="margin-top:8px"></div>
+</section>
+
+<section class="card">
   <h2>说话</h2>
   <div id="chat" class="chat"></div>
   <form id="form">
@@ -243,6 +249,15 @@ async function refresh() {
     $('sleep-note').textContent = ls && ls.content ? '上一次睡去：' + fmt(ls.ts) + '。' + (ls.content.length > 160 ? ls.content.slice(0,160) + '…' : ls.content) : '还没有睡去记录。';
     const alarm = (t.alarms || [])[0];
     $('alarm-note').textContent = alarm ? '下一次自己设的醒来：' + fmt(alarm.due_at) : '';
+    if (ls && ls.diary) {
+      $('diary').textContent = ls.diary;
+      $('diary-ts').textContent = ls.diary_ts ? fmt(ls.diary_ts) : '';
+      $('next-intent').textContent = ls.next_intent ? '下次醒来想做：' + ls.next_intent : '';
+    } else {
+      $('diary').textContent = '她还没有写过睡去日记。';
+      $('diary-ts').textContent = '';
+      $('next-intent').textContent = '';
+    }
     $('self').textContent = t.self || '（SELF.md 还没有内容）';
     renderStance(t.stance);
     renderSelfHistory(t.self_history);

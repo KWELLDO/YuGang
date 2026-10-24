@@ -250,6 +250,7 @@ def test_fish_tank_page_requires_token_and_speaks_html(running):
         assert "鱼缸" in body and "/message" in body
         assert 'id="beliefs"' in body and 'id="awareness"' in body
         assert 'id="self-history"' in body and 'id="stance"' in body
+        assert 'id="diary"' in body and 'id="next-intent"' in body
 
         status, headers, _body = _request_raw(
             port, "GET", "/", headers={"Authorization": "Bearer s3cret"}
@@ -292,6 +293,22 @@ def test_tank_includes_judgment_and_card_status(running):
     assert tank["awareness"][0]["status"] == "accepted"
     assert tank["self_history"][0]["id"]
     assert "reason" in tank["self_history"][0]
+
+
+def test_tank_surfaces_the_last_diary_and_next_intent(running):
+    service, store, _cfg = running
+    diary = store.append_event("ai-observation", "diary", "今天我用第一人称记下了这次清醒。")
+    sleep = store.append_event(
+        "ai-observation",
+        "sleep",
+        "睡去：整理今天的材料",
+        meta={"diary_event": diary.id, "next_intent": "下次先核对证据。"},
+    )
+    tank = service.tank()
+    assert tank["last_sleep"]["id"] == sleep.id
+    assert tank["last_sleep"]["diary_event"] == diary.id
+    assert tank["last_sleep"]["diary"] == diary.content
+    assert tank["last_sleep"]["next_intent"] == "下次先核对证据。"
 
 
 def test_tank_reports_a_broken_l1_chain(running):
