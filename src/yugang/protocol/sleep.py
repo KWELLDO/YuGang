@@ -25,6 +25,7 @@ class SleepResult:
     self_edit: str | None = None
     self_edits: list[dict[str, Any]] = field(default_factory=list)
     accept_self_edit: bool = False
+    awareness_reviews: list[dict[str, Any]] = field(default_factory=list)
     parsed: bool = False
 
 
@@ -32,6 +33,12 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
     events = store.events(limit=30, order="desc")
     lines = [f"[{e.id}] {e.ts} {e.source}/{e.kind}: {e.content[:500]}" for e in reversed(events)]
     loops = [f"- [{loop.id}] {loop.title} due={loop.due}" for loop in store.open_loops(limit=30)]
+    cards = store.awareness_cards(status="open", limit=20)
+    card_lines = [
+        f"- [{card.id}] trigger={card.trigger} hypothesis={card.hypothesis}\n"
+        f"  falsifier={card.falsifier}\n  evidence={', '.join(card.evidence_refs)}"
+        for card in cards
+    ]
     self_text = store.current_self() or ""
     transcript_text = "\n".join(f"{m.get('role')}: {m.get('content', '')[:1000]}" for m in transcript[-30:])
     prompt = f"""## 当前 SELF.md
@@ -42,6 +49,9 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 
 ## 未闭合的事
 {chr(10).join(loops) or "（无）"}
+
+## 还没验证的自我觉察（open cards）
+{chr(10).join(card_lines) or "（无）"}
 
 ## 这次清醒的对话
 {transcript_text or "（没有对话；这是一次自主醒来。）"}
@@ -54,14 +64,16 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
   "open_loops": [{{"title": "...", "detail": "...", "due": null}}],
   "next_intent": "下次醒来想做什么（一句）或 null",
   "self_edits": [{{"section": "我相信什么", "op": "append", "text": "要加入或替换的内容", "evidence_refs": ["evt_..."]}}],
-  "accept_self_edit": false
+  "accept_self_edit": false,
+  "awareness_reviews": [{{"card_id": "card_...", "status": "accepted|rejected|needs-evidence", "note": "今天哪条证据支持或推翻了它"}}]
 }}
 
 规则：
 - evidence_refs 必须是上面真实出现的事件 id；没有证据的判断不要写。
 - self_edits 最多 2 条；section 只能是：我是谁 / 我相信什么 / 我在做什么 / 我的边界 / 未闭合的事 / 最近的变化；op 只能是 append（追加）或 replace（替换该节正文）。
 - 不要输出完整 SELF.md。没有值得改的就给空数组并设 accept_self_edit=false。
-- 只有今天的真实经历支持时才改 SELF.md；不要为了显得一致或「应该自我改进」而改。"""
+- 只有今天的真实经历支持时才改 SELF.md；不要为了显得一致或「应该自我改进」而改。
+- awareness_reviews 只能引用上面 open cards 的真实 card_id；没有新证据就留空，不要为了关闭而关闭。"""
     return [
         {"role": "system", "content": SLEEP_SYSTEM},
         {"role": "user", "content": prompt},
@@ -142,6 +154,23 @@ def parse_sleep_output(text: str) -> SleepResult:
                     "evidence_refs": [str(ref) for ref in refs],
                 }
             )
+    awareness_reviews: list[dict[str, Any]] = []
+    raw_reviews = data.get("awareness_reviews")
+    if isinstance(raw_reviews, list):
+        for item in raw_reviews:
+            if not isinstance(item, dict):
+                continue
+            card_id = str(item.get("card_id") or "").strip()
+            status = str(item.get("status") or "").strip().lower()
+            if not card_id or status not in {"accepted", "rejected", "needs-evidence"}:
+                continue
+            awareness_reviews.append(
+                {
+                    "card_id": card_id,
+                    "status": status,
+                    "note": str(item.get("note") or "").strip() or None,
+                }
+            )
     return SleepResult(
         diary=diary,
         judgments=judgments,
@@ -151,6 +180,7 @@ def parse_sleep_output(text: str) -> SleepResult:
         self_edit=self_edit,
         self_edits=self_edits,
         accept_self_edit=bool(data.get("accept_self_edit")),
+        awareness_reviews=awareness_reviews,
         parsed=True,
     )
 
@@ -211,6 +241,18 @@ def apply_sleep_result(
             applied_loops += 1
         except (ValueError, TypeError):
             continue
+    applied_reviews = 0
+    open_cards = {card.id for card in store.awareness_cards(status="open", limit=200)}
+    for item in result.awareness_reviews:
+        card_id = str(item.get("card_id") or "").strip()
+        if card_id not in open_cards:
+            continue
+        try:
+            store.review_awareness(card_id, item["status"], note=item.get("note"))
+        except ValueError:
+            continue
+        open_cards.discard(card_id)
+        applied_reviews += 1
     self_committed = False
     self_sections: list[str] = []
     if result.accept_self_edit and result.self_edits:
@@ -254,6 +296,7 @@ def apply_sleep_result(
             "judgments": applied_judgments,
             "stance": bool(stance),
             "open_loops": applied_loops,
+            "awareness_reviews": applied_reviews,
             "self_committed": self_committed,
             "self_sections": self_sections,
             "parsed": bool(result.parsed),
@@ -266,6 +309,7 @@ def apply_sleep_result(
         "judgments": applied_judgments,
         "stance": bool(stance),
         "open_loops": applied_loops,
+        "awareness_reviews": applied_reviews,
         "self_committed": self_committed,
         "self_sections": self_sections,
         "parsed": bool(result.parsed),

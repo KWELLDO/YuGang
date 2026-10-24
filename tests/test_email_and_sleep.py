@@ -111,6 +111,21 @@ def test_parse_sleep_output_marks_plain_text_as_not_parsed():
     assert result.self_edits == []
 
 
+def test_parse_sleep_output_drops_invalid_awareness_reviews():
+    payload = {
+        "diary": "今天有觉察卡复核。",
+        "awareness_reviews": [
+            {"card_id": "card_real", "status": "accepted", "note": "有证据"},
+            {"card_id": "card_real", "status": "maybe", "note": "非法状态"},
+            {"card_id": "", "status": "accepted", "note": "没有 id"},
+        ],
+    }
+    result = parse_sleep_output(json.dumps(payload, ensure_ascii=False))
+    assert len(result.awareness_reviews) == 1
+    assert result.awareness_reviews[0]["card_id"] == "card_real"
+    assert result.awareness_reviews[0]["status"] == "accepted"
+
+
 def test_parse_sleep_output_accepts_add_as_append_alias():
     payload = {
         "diary": "她写的 op 是 add，而不是 append。",

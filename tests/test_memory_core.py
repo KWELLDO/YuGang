@@ -214,6 +214,39 @@ def test_sleep_does_not_duplicate_an_open_loop(store, cfg):
     assert "新的一件事" in titles
 
 
+def test_sleep_reviews_open_awareness_cards_once(store, cfg):
+    evidence = store.append_event("human", "message", "你刚才自己说出了那个模式")
+    card = create_card(
+        store,
+        {
+            "trigger": "T5",
+            "observation": "被指出模式时，我会先复述再判断。",
+            "hypothesis": "我倾向先复述对方的说法，再决定是否认同。",
+            "falsifier": "如果下一次被指出模式时我直接下判断，则此假设被推翻。",
+            "evidence_refs": [evidence.id],
+            "confidence": 0.6,
+        },
+    )
+    result = SleepResult(
+        diary="今天有一张觉察卡等到了证据。",
+        awareness_reviews=[
+            {"card_id": card.id, "status": "accepted", "note": "今天的对话支持它。"},
+            {"card_id": "card_fake", "status": "accepted", "note": "不存在的卡不应被应用。"},
+        ],
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    assert applied["awareness_reviews"] == 1
+    assert store.card_status(card.id) == "accepted"
+
+    again = SleepResult(
+        diary="同一张卡已经复核过，不应重复写。",
+        awareness_reviews=[{"card_id": card.id, "status": "rejected", "note": "重复复核"}],
+    )
+    applied_again = apply_sleep_result(store, cfg, again, transcript=[])
+    assert applied_again["awareness_reviews"] == 0
+    assert store.card_status(card.id) == "accepted"
+
+
 def test_duplicate_external_message_is_idempotent(store):
     first, first_event = store.receive_message("http", "重复消息", sender="kwelldo", external_id="same-1")
     count = store.event_count()
