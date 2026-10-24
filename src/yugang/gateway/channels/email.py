@@ -188,7 +188,9 @@ class EmailChannel:
         message = EmailMessage()
         message["From"] = self.config.username
         message["To"] = recipient
-        subject = (meta or {}).get("subject") or "来自大肥鱼"
+        subject = str((meta or {}).get("subject") or "来自大肥鱼").strip()
+        if not subject.lower().startswith("re:"):
+            subject = f"Re: {subject}"
         message["Subject"] = subject
         # RFC 3834 plus a private marker: the poller must never answer its own
         # reply and create a mail loop when the sender and mailbox are the same.

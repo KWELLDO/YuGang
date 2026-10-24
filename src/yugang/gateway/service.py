@@ -275,9 +275,22 @@ class GatewayService:
         channel = self._channel(incoming.channel)
         if channel is not None and incoming.channel != "http":
             try:
-                channel.send(incoming.sender, text, meta={"subject": (incoming.meta or {}).get("subject")})
-            except Exception:
-                pass
+                delivered = channel.send(
+                    incoming.sender, text, meta={"subject": (incoming.meta or {}).get("subject")}
+                )
+                if delivered is False:
+                    raise RuntimeError("channel.send returned False")
+            except Exception as exc:
+                # Her reply is in L1, but the human never received it. That is
+                # a delivery failure and must be visible, not swallowed.
+                self.store.append_event(
+                    "system",
+                    "error",
+                    f"回复投递失败 via {incoming.channel}：{type(exc).__name__}: {exc}",
+                    channel=incoming.channel,
+                    refs=[message_id] if message_id else [],
+                    meta={"message_id": message_id, "reply_event": event.id},
+                )
         return event
 
     def _record_inline_awareness(

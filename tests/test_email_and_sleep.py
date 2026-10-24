@@ -251,3 +251,4 @@ def test_email_reply_sets_loop_guard_headers(monkeypatch):
     assert channel.send("kwelldo@example.com", "你好", meta={"subject": "hello"}) is True
     assert sent[0]["X-YuGang-Reply"] == "1"
     assert sent[0]["Auto-Submitted"] == "auto-replied"
+    assert sent[0]["Subject"] == "Re: hello"

@@ -72,6 +72,39 @@ def test_model_failure_fails_loud(tmp_path):
         store.close()
 
 
+def test_delivery_failure_is_recorded_not_swallowed(tmp_path):
+    cfg = Config.default(str(tmp_path / "ayu"))
+    cfg.model = "mock"
+    store = MemoryStore(cfg.db_path)
+
+    class FailingChannel:
+        name = "email"
+
+        def start(self, on_message):
+            pass
+
+        def stop(self):
+            pass
+
+        def send(self, recipient, content, *, meta=None):
+            return False
+
+    service = GatewayService(
+        cfg, store, MockRuntime(responder=lambda messages, purpose: "回信内容"), channels=[FailingChannel()]
+    )
+    service.start()
+    try:
+        reply = service.chat("这封邮件会投递失败", channel="email", timeout=10)
+        assert reply == "回信内容"
+        service.queue.join()
+        errors = [e for e in store.events(limit=30) if e.kind == "error" and "回复投递失败" in e.content]
+        assert errors
+        assert "channel.send returned False" in errors[0].content
+    finally:
+        service.stop()
+        store.close()
+
+
 def test_http_channel_auth_health_and_synchronous_reply(running):
     service, _store, _cfg = running
     channel = HttpChannel("127.0.0.1", 0, token="s3cret")
