@@ -70,6 +70,14 @@
 - 新 SELF 版本的 `reason` 会写出 `接受觉察卡 <card_id>`；diff 事件与证据注释照旧，之后仍可 review / supersede。
 - 测试 `test_accepted_awareness_card_can_justify_a_self_edit` 覆盖成功链条与证据注入；全量 **51 passed**。
 
+### 觉察卡 → SELF v2（03:03 CST，A2 闭环）
+
+- 19:02:42 唤醒后，她复核 `card_20261024T184145134656_7b4ca8`（“优先复述外部措辞”）：证据只有一次且她最终自行纠正，判断不够，留 open，拒绝强行改 SELF。
+- 19:03:12 再复核 `card_20261024T180458842356_75f3ef`（“读记忆目前只是被指令触发”）：她指出这是负向判断，六次被检查的醒来里没有反例，但主动把结论限制在“被检查过的清醒”，不写成一般性结论；接受并给出一条最小 self_edit。
+- 19:03:31 睡去：`awareness_reviews=2`、`awareness_self_edits=1`、`self_committed=true`、`self_sections=["我相信什么"]`。SELF v2 版本 `self_20261024T190331222422_60d0ff`，reason 为 `睡去时接受：结构化修订 我相信什么；接受觉察卡 card_20261024T180458842356_75f3ef`；证据含该卡的三条 L1 refs 与本次 L1 refs；卡片最新 review 状态 `accepted`。
+- 这一轮同时产生了 2 张新 open 卡（复核时的反证倾向、正/负向判断的门槛混淆），说明觉察不是一次性验收动作，而是可继续被检验的记录。
+- 当前：events=80、SELF versions=3（v0/v1/v2）、当日花费约 0.306868/5 元。
+
 ## 进行中 / 下一步
 
 - 把 DSH 接成她的推理运行时（目前 3199 只是运维控制台，不参与她的唤醒/记忆写入）。
