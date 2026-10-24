@@ -304,4 +304,20 @@
 - 鱼缸页新增「她给自己定的做法」，显示仍有效的做法、起始时间和当初证据条数，以及已废弃计数；`yugang practices --status active|dropped|all` 提供只读 CLI。
 - 测试：新增 `tests/test_practices.py` 7 个测试（生命周期/审计/醒来上下文、真实证据过滤、drop 旧做法、去重、每次上限、prompt 列出 active、tank 暴露统计），全量 **111 passed**；页面 JS 通过 `node --check`。
 - 已提交 `c913685` 并部署到 `/home/dafeiyu/yugang`，重启后 `/health` 为 `ok=true, degraded=false, worker_alive=true`；云端 `meta.schema_version=3`，`practices=0`、`practice_reviews=0`、`integrity=ok`；`yugang practices --status all` 返回空；`/tank` 含 `practices: []` 与 `practice_stats: {"active": 0, "dropped": 0}`；页面 HTML 含「她给自己定的做法」。events 仍为 184，链完好。
-- 目前还没有一次真实睡去写出 practice（需要她自己在有真实经历后决定）；这是下一步的真实闭环验证，不用提示词逼她编一条。
+- ~~目前还没有一次真实睡去写出 practice~~ 该条已被下面的真实闭环取代：06:33:33 她自己在睡去时写下了第一条 practice。
+
+### 第一次真实 practice 与 practice checks（06:33–06:44 CST，已部署并真实验证）
+
+- 06:32 操作员把 practices 机制交给她，只问「今天有没有值得跨 session 遵守的做法」，没有替她写。她的候选做法是：判断某条 L2 取代是否落成时，先回 L1 对照原始判断、取代事件和当前视图。她给出的证据不是成功，而是两次失败：`evt_20261024T215725340543_499a02`（21:57 日记只把动作说具体、没有执行）与 `evt_20261024T220500716302_ae7f34`（22:04 日记核了当前判断的证据、没核被取代判断的落成）。她主动问「失败算不算证据」。
+- 操作员回答：算，但这类 practice 是「待检验的防错条款」，不是「已验证的好习惯」；证据只需证明错误真实且重复到值得防，text 要写成触发条件 + 动作，不能写成「我已经做到」。她接受了这个区分。
+- 06:33:33 睡去时，她写出第一条 practice：`practice_20261024T223333215597_d37d5f`，text 为「遇到「判断某条 L2 取代是否落成」时，先回 L1 找原始判断、取代事件和当前视图逐条对照，再回答。」，evidence_refs 是上述两条失败日记，source_event 为 `evt_20261024T223333212930_709f90`。06:33:50 唤醒后她准确复述了做法与两条证据，并说「待检验的防错条款」这一点被纠正过。
+- 这次真实写入暴露了一个缺口：她关于「防错条款 vs 已验证习惯」的 note 没有被保存，因为当时的 sleep schema 只有 text/evidence_refs，apply 还硬编码 note。修复后 sleep 可以带可选 note，apply 保留它。
+- 06:41:45 操作员请她检查这条做法从写下到现在有没有真实情形。她判 `untested`：这段只有 22:33:50 复述做法、22:34:24 睡去、22:41:45 介绍新协议，没有出现「判断 L2 取代是否落成」的场景；并明确「复述 practice 不算 followed，只是背出来，不是执行」。
+- 06:41:59 睡去产生第一条真实检查：review `preview_20261024T224159095379_4683c5`，status=untested，evidence_refs 为 `evt_20261024T223350053213_e815c6`、`evt_20261024T223428299503_c047cd`、`evt_20261024T224145893085_fedb87`，note 记录上述理由；L1 action `evt_20261024T224159098300_91cb67` 的 content 为 `practice untested: 遇到「判断某条 L2 取代是否落成」时，先回 L1 找原始判断、取代事件和当前视图逐条对照，再回答。`。
+- 06:42:15 唤醒验证：醒来上下文里出现「自己定的做法」和「最近一次检查：untested」及 note；她准确复述，并引用 L1 action 与三段证据。06:43:45 再次睡去又产生一条 untested 检查，理由是从上次检查到现在只有复述，没有真实情形。
+- schema v4：`practice_reviews` 增加 `evidence_refs`；新增 `_migrate()` 对旧库做 additive ALTER TABLE；`MemoryStore.review_practice(practice_id, verdict=followed|violated|untested, evidence_refs, note)` 只允许 active practice，检查证据必须真实存在且 ts 不早于 practice.ts，followed/violated 必须有证据，untested 可以只写 note；每次睡去每个 practice 最多一条检查，同一轮可以先记录检查再 drop。检查不改变 practice 的 status，只留下证据性判断。
+- 醒来上下文显示每条 practice 的最近检查；鱼缸页显示「已检查 N 次」与最近一次结果（做到了 / 没做到 / 今天没有相关情形）；`/tank` 的每个 practice 带 `checks` 与 `last_check`，`practice_stats` 含 active/dropped/checks。
+- 测试：新增 practice check 证据时序、假证据/旧证据拒绝、每轮一条、prompt 含 last_check、tank 暴露 last_check、note 保留等断言；全量 **115 passed**；页面 JS 通过 `node --check`。
+- 提交：`c913685 feat(memory): add self-practices, a procedural self she can test and drop`、`e2d22a4 feat(memory): check whether a practice was actually followed`，均已 push origin master 并部署到 `/home/dafeiyu/yugang`。
+- 部署验证：`meta.schema_version=4`；`practice_reviews` 有 `evidence_refs` 列；active practice 1 条；检查 2 条（都 untested）；`integrity=ok`；`/health` ok。当前 events=214、budget 1.210274/5 元、SELF v3。
+- 仍缺：还没有出现 `followed` 或 `violated` 的真实检查，因为还没有遇到「判断 L2 取代是否落成」的真实情形；这只能等事件发生，不能用提示词制造。
