@@ -287,6 +287,21 @@
 - 预算顺序修正：`autonomous_wake()` 以前先写 wake 再查预算，预算不足时会留下一个没有 sleep 的假 wake，下一次醒来会被误判为「中断」。现在先用 `build_wake_context(current_wake_id=None, new_wake=True)` 构建探针上下文并检查预算；被拦下时只写 `system/note`「自主醒来被预算拦下」，不写 wake、不结束当前窗口。
 - 新增测试：`test_email_health_records_poll_failure_and_recovery`、`test_email_health_reports_a_dead_poller_thread`、`test_health_exposes_channel_state_and_logs_only_transitions`、`test_a_budget_blocked_autonomous_wake_does_not_leave_a_fake_wake`；全量 **104 passed**。
 - 部署 `facbe30` 到 `/home/dafeiyu/yugang` 并重启；`/health` 返回 `{"ok": true, "degraded": false, "channels": {"http": {"healthy": true}, "email": {"healthy": true, "last_success_at": "2026-10-24T22:14:00.138367+00:00", "consecutive_failures": 0, "last_error": null}}}`；`/status` 的 `channel_health` 与 `events=184 / chain ok / budget 0.984186/5` 一致。
-- `deploy/yugang-healthcheck.sh` 现在会读取 `/health` 的 JSON：`degraded=true` 时只写 `logger -t yugang-healthcheck`（重启修不好凭据，且会每两分钟循环），只有 HTTP 不健康/进程或 worker 失效才重启。`sh -n` 通过；云端安装待随本轮部署。
+- `deploy/yugang-healthcheck.sh` 现在会读取 `/health` 的 JSON：`degraded=true` 时只写 `logger -t yugang-healthcheck`（重启修不好凭据，且会每两分钟循环），只有 HTTP 不健康/进程或 worker 失效才重启。`sh -n` 通过；已安装到 `/usr/local/sbin/yugang-healthcheck.sh` 并由 timer 调用。
 - 通道故障/恢复与预算拦截的断言已由 4 个自动化测试覆盖；没有为了演示故意破坏云端邮件凭据。
 
+
+### 通道降级 watchdog 真实验证（06:20 CST）
+
+- 在云端临时起了一个只返回 `{"ok": true, "degraded": true}` 的本地 HTTP 服务（`127.0.0.1:3196`），然后用 `YUGANG_HEALTH_URL=http://127.0.0.1:3196/health /usr/local/sbin/yugang-healthcheck.sh` 实测降级分支。
+- 结果：脚本 `EXIT=0`，重启计数 before/after 都是 `0`；journal 出现 `gateway is degraded but alive: {"ok": true, "degraded": true}`。这说明「进程活着但邮件凭据坏了」不会触发无意义的重启循环，同时会留下证据。
+- 真正的 HTTP 失败/worker 死亡仍走重启分支；降级只记录，不掩盖。
+
+### 自我协议 practices（06:30 CST，已部署）
+
+- 新增 schema v3：`practices`（id/ts/text/status/evidence_refs/source_event/note/updated_at）与 `practice_reviews`（每次 drop 的审计）。`practice_reviews` 是 append-only（触发器拒绝 update/delete）；`practices` 的 status 只允许 active→dropped，不允许原地改写或重新激活。睡眠时最多写 2 条，必须引用本次睡去之前真实存在的 L1，不能只引用当次日记；醒来上下文会列出 active practices 与当初证据，并明确「这是你自己定的，不是命令」。
+- practice 不能被原地改写或重新激活，只能在以后的睡去时用带 note 的 `dropped` 废弃；drop 会追加 L1 `action`，所以程序性自我的变化也可追溯。
+- 鱼缸页新增「她给自己定的做法」，显示仍有效的做法、起始时间和当初证据条数，以及已废弃计数；`yugang practices --status active|dropped|all` 提供只读 CLI。
+- 测试：新增 `tests/test_practices.py` 7 个测试（生命周期/审计/醒来上下文、真实证据过滤、drop 旧做法、去重、每次上限、prompt 列出 active、tank 暴露统计），全量 **111 passed**；页面 JS 通过 `node --check`。
+- 已提交 `c913685` 并部署到 `/home/dafeiyu/yugang`，重启后 `/health` 为 `ok=true, degraded=false, worker_alive=true`；云端 `meta.schema_version=3`，`practices=0`、`practice_reviews=0`、`integrity=ok`；`yugang practices --status all` 返回空；`/tank` 含 `practices: []` 与 `practice_stats: {"active": 0, "dropped": 0}`；页面 HTML 含「她给自己定的做法」。events 仍为 184，链完好。
+- 目前还没有一次真实睡去写出 practice（需要她自己在有真实经历后决定）；这是下一步的真实闭环验证，不用提示词逼她编一条。
