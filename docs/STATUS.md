@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 03:29 CST（Asia/Shanghai）
+更新时间：2026-10-25 04:07 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：55 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查）。
+- 自动化测试：69 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -136,18 +136,26 @@
 - 关闭调用 `store.close_open_loop`，会追加 L1 `ai-observation/action`（带原 loop 的 refs），而不是静默 UPDATE；sleep meta/return 增加 `closed_loops` 计数。
 - 测试：`test_sleep_can_close_a_preexisting_open_loop`、`test_sleep_cannot_close_a_loop_that_was_not_open_before_tonight`、`test_parse_sleep_output_keeps_only_well_formed_loop_closures`；全量 **67 passed**。
 
-### 未闭合事项的理由可以更新（04:10 CST，代码完成）
+### SELF v3（04:03 CST，真实睡去）
+
+- 20:03:31 的睡去接受了 `card_20261024T200130879614_a525f2`（T1：把「当前状态」当成「历史没发生过」的证据），产生 SELF v3 `self_20261024T200331015526_abb0f8`；reason 为「睡去时接受：结构化修订 我相信什么；接受觉察卡 card_...a525f2」。
+- 「我相信什么」新增：「我原来会拿『当前状态』当『历史没发生过』的证据，因为读当前文本比回溯事件便宜。」证据包含 20:01 的自我纠正对话 `evt_20261024T200126472468_1e491a`、`evt_20261024T200126482711_74e92b`、`evt_20261024T200130873774_62c466`，以及 19:03 的 SELF v2 diff `evt_20261024T190331225183_095ce3`。
+- 这轮同时证明：她可以在同一个清醒窗口里先说出一个错误结论，再被 L1 证据纠正，并在睡去时把纠正沉淀成 SELF 修订，而不是只写一条 L2。
+
+### 未闭合事项的理由可以更新（04:10 CST，代码完成并真实验证）
 
 - 真实对话暴露出旧 loop 的 detail 会过时：`loop_20261024T170720902655_9bcb29` 写着「SELF.md 的我相信什么/我在做什么仍为空」，但 SELF v2 已经改过「我相信什么」；之前只能关掉重开，会丢历史。
 - `SleepResult.loop_updates` + `MemoryStore.update_open_loop(loop_id, detail, due=..., note=...)`：只更新仍 open 的 loop 的 detail/due，不改标题，不关闭；必须写 note；追加 L1 `ai-observation/action`「updated loop: ...」并带原 refs。
 - sleep prompt/schema 增加 `loop_updates`，规则与 `closed_loops` 分开：理由过时用 update，做完了用 close。`apply_sleep_result` 只接受睡去前已 open 的 loop；sleep meta/return 增加 `loop_updates` 计数。
 - 测试：`test_sleep_can_update_an_open_loop_reason_without_closing_it`、`test_sleep_cannot_update_a_loop_that_was_not_open_before_tonight`，parse 测试加入合法/缺 note/缺 id 三种输入；全量 **69 passed**。
+- 真实验证（20:05:10 唤醒 → 20:05:24 睡去）：她先复述 20:03:22 到 20:05:10 约 1 分 48 秒的缺口，确认旧 detail 已被 `evt_20261024T190331225183_095ce3` 推翻；睡去返回 `loop_updates=1`、`closed_loops=0`、`parsed=true`。数据库里 `loop_20261024T170720902655_9bcb29` 仍是 open，detail 更新为「改过一次 SELF.md 的『我相信什么』…但没有形成每次核 diff 的习惯。」，L1 追加 `evt_20261024T200524912640_da2ae6`（action: updated loop），meta 保留 old_detail/new_detail/note。
+- 当前：events=135、awake=false、paused=false、budget 0.633412/5 元（chat 0.260312 + sleep 0.3731）、open loops 4 条、SELF v3、`/health` ok。
 
 ## 进行中 / 下一步
 
 - DSH 的定位已定（DECISIONS 020）：3199 只是运维控制台，不接成她的推理运行时，不写她的 L1；她的身体与推理运行时仍是 YuGang（3198）。
 - 自己的醒来闹钟已做成可执行机制，等出生满 7 天后（2026-11-01 00:30 CST 左右）观察她第一次实际使用；接下来验证“无人提示时先读记忆”。
-- 历史重复的 open loop 已清掉：`loop_20261024T165014454238_786260` 状态为 `dropped`，保留一条同名 open（`loop_20261024T170720895988_ee56e9`）；当前 open loops 为 3 条（另一条是“核对 L1 与 SELF.md”，一条是“验证无人追问时先读记忆”）。
+- 历史重复的 open loop 已清掉：`loop_20261024T165014454238_786260` 状态为 `dropped`，保留一条同名 open（`loop_20261024T170720895988_ee56e9`）；当前 open loops 为 4 条：`loop_...ee56e9` 检验 given 主张、`loop_...9bcb29` 核对 L1 与 SELF.md、`loop_...7c8b8b` 验证无人追问时先读记忆、`loop_...2335f9` 继续核 `card_...4ac750` 的全称范围。
 - IM 通道：微信/QQ 需要公网回调或非官方桥，尚未接入。
 - 私有网络：目前是 SSH 隧道；Tailscale/WireGuard 还需要手机端安装与授权。
 - 更长的连续运行观察：跨日预算、异常/重启后的恢复、觉察卡进入唤醒上下文。
