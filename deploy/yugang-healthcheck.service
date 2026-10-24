@@ -1,0 +1,8 @@
+[Unit]
+Description=YuGang gateway health watchdog
+After=yugang.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/yugang-healthcheck.sh
+Nice=5

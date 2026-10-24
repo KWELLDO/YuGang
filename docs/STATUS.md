@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 03:16 CST（Asia/Shanghai）
+更新时间：2026-10-25 03:29 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -10,13 +10,14 @@
 - 服务：`yugang.service`，`Restart=always`，仅监听 `127.0.0.1:3198`。
 - 运维控制台：`dafeiyu-dsh.service`，独立 `DSH_HOME=/home/dafeiyu/.dsh`，仅监听 `127.0.0.1:3199`；token 由 wrapper 写入 `/home/dafeiyu/.dsh/web-url`（0600）。它不是她的第二人格，也不是她的推理运行时。
 - 每日备份：`yugang-backup.timer`（04:15）生成 SQLite 一致性快照 + SELF.md + manifest，保留 14 天。
+- Worker 心跳 watchdog：`yugang-healthcheck.timer` 每 2 分钟检查 `GET /health`；进程活着但 worker 死亡/心跳过期时重启 `yugang.service`，主动 stop 不覆盖。
 - 密钥：`/etc/dafeiyu-dsh.env`（root:root 0600），不进入仓库。
 - 公网端口：未开放；当前通过 SSH 访问，客户端见 `scripts/yugang-remote.sh`。
 - 开源仓库：公开在 https://github.com/KWELLDO/YuGang（MIT）。
 
 ## 已验证
 
-- 自动化测试：54 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放）。
+- 自动化测试：55 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -88,6 +89,14 @@
 - 新增测试 `test_pause_buffers_messages_and_resume_answers_them`、`test_pause_does_not_fake_a_sleep`、`test_operator_can_pause_and_resume_through_http`；全量 **54 passed**。
 - 19:19:45Z（03:19 CST）真实云端闭环：`/pause` 返回 paused=true、reason=deployment-check；暂停中 `/message` 返回系统通知（不是她的回答），消息在 L1 原文+system note 各出现一次且保持 `received`；`/sleep` 返回 409；`/resume` 后 `_recover_pending()` 在 18 秒内唤醒并生成真实回复（events 86→93，chat 花费 0.353482→0.363578 元）。她第一句主动说「上一次是清醒窗口结束：operator，不是睡眠」，并准确引用暂停/缓冲/恢复三条 note，没有把暂停伪装成睡眠。
 - 19:20:31Z 睡去（`parsed=true`、`awareness_reviews=2`、`judgments=2`、SELF 未改），events=96、budget 0.384914/5 元、awake=false、paused=false。
+
+### Worker 心跳 watchdog（03:29 CST，已部署）
+
+- `/health` 现在返回 `ok`、`awake`、`paused`、`worker_alive`、`last_tick_age_seconds`；未启动、worker 线程死亡或心跳超过 600 秒时返回 503。worker 每轮循环顶部更新心跳，HTTP 线程活着但 worker 卡死不再被误判为健康。
+- `deploy/yugang-healthcheck.sh` 安装为 root:root `/usr/local/sbin/yugang-healthcheck.sh`（dafeiyu 不能改它）；`yugang-healthcheck.timer` 每 2 分钟运行。仅当 `yugang.service` 处于 active 时检查，`systemctl stop` 不会被 watchdog 覆盖；健康检查失败才 restart，并把结果写 `logger -t yugang-healthcheck`。
+- 已 `enable --now`；手动跑一次 service：`Result=success`、`ExecMainStatus=0`，下一轮 03:31:18 CST 已排定；`journalctl -t yugang-healthcheck` 无条目（健康时不刷日志）。
+- 重启后 `/health` 返回 `{"ok": true, "awake": false, "paused": false, "worker_alive": true, "last_tick_age_seconds": ...}`；当时 events=102、budget 0.414662/5 元、channels=[http,email]。
+- 新增测试 `test_health_is_not_ok_when_the_worker_was_never_started`（503），并强化既有 HTTP 健康断言；全量 55 passed。
 
 ## 进行中 / 下一步
 

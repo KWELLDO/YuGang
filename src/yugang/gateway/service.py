@@ -68,6 +68,7 @@ class GatewayService:
         self._current_wake_id: str | None = None
         self.last_reply: str | None = None
         self.started_at = now_iso()
+        self._last_tick_monotonic = time.monotonic()
 
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> None:
@@ -241,6 +242,9 @@ class GatewayService:
     # -------------------------------------------------------------------- worker
     def _worker_loop(self) -> None:
         while not self._stop.is_set():
+            # The health endpoint uses this heartbeat to tell a live worker
+            # from a process whose HTTP thread is up but whose worker died.
+            self._last_tick_monotonic = time.monotonic()
             try:
                 incoming = self.queue.get(timeout=1.0)
             except queue.Empty:
@@ -252,6 +256,18 @@ class GatewayService:
                 self._fail(incoming, f"{type(exc).__name__}: {exc}")
             finally:
                 self.queue.task_done()
+
+    def health(self) -> dict[str, Any]:
+        worker_alive = bool(self._worker is not None and self._worker.is_alive())
+        age = max(0.0, round(time.monotonic() - self._last_tick_monotonic, 3))
+        max_age = float(getattr(self.config, "health_max_tick_age_seconds", 600))
+        return {
+            "ok": bool(self._started and worker_alive and age <= max_age),
+            "awake": self.window.is_awake(),
+            "paused": self.is_paused(),
+            "worker_alive": worker_alive,
+            "last_tick_age_seconds": age,
+        }
 
     def process_message(self, incoming: IncomingMessage) -> str | None:
         now = self.now_fn()

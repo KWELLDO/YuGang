@@ -235,7 +235,8 @@ class _Handler(BaseHTTPRequestHandler):
         parts = urlsplit(self.path)
         path = parts.path
         if path == "/health":
-            self._json(200, {"ok": True, "awake": self.channel.service.status().get("awake", False)})
+            health = self.channel.service.health()
+            self._json(200 if health.get("ok") else 503, health)
             return
         if path in ("/", "/index.html"):
             token = (parse_qs(parts.query).get("token") or [None])[0]

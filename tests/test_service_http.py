@@ -112,7 +112,10 @@ def test_http_channel_auth_health_and_synchronous_reply(running):
     channel.start(service.handle_incoming)
     port = channel._server.server_address[1]
     try:
-        assert _request(port, "GET", "/health")[0] == 200
+        health_status, health_body = _request(port, "GET", "/health")
+        assert health_status == 200
+        assert health_body["ok"] is True
+        assert health_body["worker_alive"] is True
         assert _request(port, "GET", "/status")[0] == 401
         assert _request(port, "POST", "/message", {"content": "你好"})[0] == 401
 
@@ -361,4 +364,22 @@ def test_sleep_fails_loudly_and_never_stores_raw_json_as_diary(tmp_path):
         assert not diary.content.lstrip().startswith("{")
     finally:
         service.stop()
+        store.close()
+
+
+def test_health_is_not_ok_when_the_worker_was_never_started(tmp_path):
+    cfg = Config.default(str(tmp_path / "ayu"))
+    store = MemoryStore(cfg.db_path)
+    service = GatewayService(cfg, store, MockRuntime())
+    channel = HttpChannel("127.0.0.1", 0, token=None)
+    channel.bind(service)
+    channel.start(service.handle_incoming)
+    port = channel._server.server_address[1]
+    try:
+        status, body = _request(port, "GET", "/health")
+        assert status == 503
+        assert body["ok"] is False
+        assert body["worker_alive"] is False
+    finally:
+        channel.stop()
         store.close()

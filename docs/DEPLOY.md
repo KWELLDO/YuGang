@@ -35,6 +35,26 @@ sudo systemctl enable --now yugang.service
 sudo systemctl status yugang.service --no-pager
 ```
 
+## Health watchdog
+
+`Restart=always` covers a crashed process. A live process can still lose its
+worker thread, so a small root-owned watchdog polls `GET /health` every two
+minutes. The endpoint returns 503 unless the worker is alive and its heartbeat
+is recent; the watchdog restarts `yugang.service` only if systemd reports it as
+active, so an intentional `systemctl stop` is not overridden.
+
+```bash
+sudo install -m 755 deploy/yugang-healthcheck.sh /usr/local/sbin/yugang-healthcheck.sh
+sudo install -m 644 deploy/yugang-healthcheck.service /etc/systemd/system/
+sudo install -m 644 deploy/yugang-healthcheck.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now yugang-healthcheck.timer
+systemctl list-timers yugang-healthcheck.timer --no-pager
+```
+
+Run it once by hand with `sudo systemctl start yugang-healthcheck.service` and
+check `journalctl -t yugang-healthcheck` after a real incident.
+
 ## Access
 
 From a laptop:
