@@ -244,7 +244,7 @@
 - 新增 `test_tank_surfaces_the_last_diary_and_next_intent`；鱼缸页 HTML 测试断言 `id="diary"` 与 `id="next-intent"`；全量 **93 passed**；页面 JS 通过 `node --check`。
 - 云端部署后验证：`/tank` 的 `last_sleep.diary_event` 是 `evt_20261024T210736931084_1839af`，`diary` 为当次第一人称日记，`next_intent` 为「先查当前视图，不拿旧记忆当当前状态」；页面 HTML 含「上一次的日记」；服务 active、awake=false、events=157。
 
-### 醒来时读到真实的身体状态（05:42 CST，已实现）
+### 醒来时读到真实的身体状态（05:42 CST，已部署）
 
 - 之前醒来上下文有 SELF、L3、L2、觉察卡、未闭合事项和 L1，却没有她自己的身体读数；她无法知道自己今天还剩多少预算、最近有没有备份、下次闹钟是什么、哪些通道在收消息。
 - `WakeContext` 新增 `body: dict | None`；`build_wake_context(..., body=...)` 可注入系统读数，prompt 新增「我的身体状态（系统读数，不是体验）」。
@@ -252,3 +252,5 @@
 - prompt 只陈述读数（L1 条数、已用/总预算/剩余、最近备份时间、下一次/正在响的闹钟、通道、是否暂停），不写「我感到」；身体状态不是体验，而是可核对的材料。
 - `process_message`（新醒来与同窗口续聊）和 `autonomous_wake` 都把 `body=self._body_state(now)` 传入；`build_wake_context` 的直接调用方可省略。
 - 测试：`test_wake_context_reports_body_readings_without_claiming_experience`、`test_body_state_reads_real_counts_and_the_latest_backup`；全量 **95 passed**。
+- 云端真实读数（2026-10-24T21:45:03Z）：她逐项读出 L1 159 条；今天已用 ¥0.79 / ¥5.00、剩余 ¥4.21、状态 ok；最近备份 2026-10-24T21:09:15.874647+00:00；下一次闹钟「还没有设」；通道 http、email；操作员暂停「否」。她明确说明没有看到「正在响的闹钟」字段，因为没有到期闹钟；没有把缺失项编出来。
+- 随后睡去：`parsed=true`、`judgments=0`、`judgment_reviews=0`、`awareness_reviews=0`、`self_committed=false`；diary `evt_20261024T214524390480_dbcee0`、sleep `evt_20261024T214524397082_888281`。`/status`：events=163、awake=false、chain ok、budget 0.83369/5（chat 0.33495 + sleep 0.49874）、next_alarm=null。
