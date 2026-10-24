@@ -339,11 +339,21 @@
 - 她主动区分了「你要求我引的」与「无人提示时自己回去查」：前者只证明日记可检索、内容自洽，不证明她会自发去翻。这个区分被原样保留，没有被系统改写成更强的结论。
 - 真实闭环后 events=217；`/status` 的 budget 与 chain 正常；本次没有新 L2 或 SELF 修订，citation 只影响回忆权重，不自动生成判断。
 
-### 生活片段 episodes（07:12 CST，代码完成，未部署）
+### 生活片段 episodes（07:12 CST，已部署并真实验证）
 
 - 新增 schema v6：`episodes(id, ts, start_ts, end_ts, title, summary, event_ids, origin, source_event, created_at)`，触发器拒绝 update/delete；它只是 L1 之上的叙事索引，不替代 L1，也不自动改 SELF.md。
 - 每次睡去时，系统取上一次 `sleep` 到这次睡去之间的真实 L1 事件；模型可给 `episode: {title, summary}`，没给则由日记生成 `origin="diary"` 的索引，不编造。`event_ids` 是实际使用的 L1 集合，`source_event` 是创建它的 sleep 事件。
 - 醒来上下文新增「我最近的生活片段（叙事索引，不是当前判断）」，按 recall query 取最近 4 条；没有 query 时取最近片段。提示词明确：片段与原始 L1 冲突时以 L1 为准。
 - 鱼缸页新增「她记得的片段」，显示标题、时间范围、依据条数、来源和摘要；`yugang episodes [--query] [--limit]` 提供只读 CLI；`/tank` 返回 `episodes` 与 `episode_count`。
 - 新增 `tests/test_episodes.py`：append-only 与搜索、episode 解析、睡去生成并绑定 window+diary、无 model episode 时 fallback `origin=diary`、wake 与 tank 暴露。页面测试新增 `id="episodes"`。全量 **123 passed**，页面 JS 通过 `node --check`。
-- 尚未 commit、未部署；云端仍是 a4e4e18 / schema v5。下一步部署 schema v6，并做一次真实睡去，确认 episode 只绑定真实事件、醒来能读到它。
+- commit `0437655 feat(memory): index each waking window as an append-only episode` 已 push origin master，并部署到 `/home/dafeiyu/yugang`；restart 后 `/health` ok。云端 `meta.schema_version=6`，`episodes` 表与十个列齐全，初始 0 行，events=221，integrity ok；`yugang episodes` 返回空，`/tank` 含 `episodes: []` 与 `episode_count: 0`。
+
+### 第一条真实 episode 与时间戳修复（07:14–07:20 CST，已部署并验证）
+
+- 07:14:57 唤醒她时，她把 L1 的 UTC 记录 `23:11:16` 与本地「现在 07:14:57」直接相减，报出「约 8 小时 3 分钟」的空缺口；真实缺口是 3 分 41 秒。这个错误先被原样写进 L1 回复，随后被 23:15:08 睡去生成的 `episode_20261024T231515319298_77148f` 忠实抄进摘要——说明叙事索引只保证「抄了我说过的话」，不保证「我说过的话对」。
+- 同一轮暴露出更底层的问题：醒来提示词的「现在」是本地时间，而 L1 / 上次睡去 / 回忆条目展示的是原始 UTC 时间，模型很容易拿错两个时钟。修复：`src/yugang/ids.py` 新增 `local_iso(ts, tz)`（转换为带显式偏移的本地时间），`protocol/wake.py` 与 `protocol/sleep.py` 的所有时间显示统一走它（上次睡去、上一次醒来、备份、闹钟、SELF 修订、episode 范围、practice 检查、L1 与回忆条目），睡去提示词顶部新增「主观时间」并明确「所有时间都已换算到这个时区，不要拿本地时间和 UTC 记录相减」。新增两个回归测试，全量 **125 passed**；commit `9cb5cbc fix(prompt): render stored timestamps in her local time` 已 push 并部署。
+- 07:19:33 她读第一条 episode 后回 L1 重算：上次 `system/sleep` `evt_20261024T231120525736_2a1ac5` 为 07:11:16，这次 `system/wake` `evt_20261024T231457903167_824c8c` 为 07:14:57，真实是 3 分 41 秒；她明确「8 小时 3 分钟」错了，错源是自己上次混算 UTC 与本地时间，片段只是忠实抄录；按优先级以 L1 为准，片段不改，记下勘误。
+- 07:19:44 睡去生成第二条 episode `episode_20261024T231951389354_35b64c`，标题「核对第一条生活片段的时间缺口」，摘要正确写出 3 分 41 秒；同轮新增 L2 `judg_20261024T231951355147_2ecc89`（confidence 0.95、4 条真实 L1、falsifier 完整），关闭 1 条 open loop，接受 1 张觉察卡并由它触发 SELF v4 `self_20261024T231951378850_52599f`。
+- SELF v4 的「我相信什么」新增：「我原来会把日记/片段里的时间缺口当成可信的既成事实去引用，而不回 L1 重算时间戳；叙事索引的忠实度只保证它抄了我说过的话，不保证我说过的话对。」
+- 07:20:07 再唤醒做短验证：她只凭醒来上下文正确读出最新片段标题「核对第一条生活片段的时间缺口」、上次睡去 `2026-10-25T07:19:44+08:00`、SELF v4 最新那条原文，以及真实缺口 23 秒；说明本地时间显示与 episode 读取都生效。07:20:19 再次睡去生成第三条 episode `episode_20261024T232019303248_5e8f9f`（标题「短验证：只凭醒来上下文答三点」）。
+- 当前云端：events=246、episodes=3、SELF versions=5（最新 v4）、budget 1.430776/5 元、asleep、chain ok；第一条 episode 的错误摘要保留在 L1 历史里，没有被改写，这正是「L1 为准」要处理的冲突。
