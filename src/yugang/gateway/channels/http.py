@@ -27,6 +27,7 @@ h1 { font-size:22px; margin:0; letter-spacing:.08em; font-weight:600; }
 h1 small { color:var(--dim); font-size:12px; letter-spacing:.18em; margin-left:8px; font-weight:400; }
 .pill { font-size:13px; padding:4px 10px; border-radius:999px; border:1px solid var(--line); color:var(--dim); white-space:nowrap; }
 .pill.awake { color:#0b1a1f; background:var(--accent); border-color:var(--accent); }
+.pill.paused { color:#ffd9a0; border-color:#8a5a22; background:#2a1c0d; }
 .card { background:linear-gradient(180deg, rgba(18,42,52,.9), rgba(12,28,36,.9)); border:1px solid var(--line); border-radius:14px; padding:14px 15px; margin:12px 0; }
 .card h2 { font-size:12px; letter-spacing:.16em; color:var(--dim); margin:0 0 8px; font-weight:500; text-transform:uppercase; }
 .muted { color:var(--dim); font-size:14px; }
@@ -101,6 +102,7 @@ a { color:var(--accent); }
 const params = new URLSearchParams(location.search);
 const incoming = params.get('token');
 let token = incoming || sessionStorage.getItem('yg_token') || '';
+let paused = false;
 if (incoming) {
   sessionStorage.setItem('yg_token', incoming);
   history.replaceState({}, '', location.pathname);
@@ -137,13 +139,16 @@ async function refresh() {
   try {
     const t = await api('/tank');
     const s = t.status || {};
+    paused = !!s.paused;
     const pill = $('pill');
-    pill.textContent = s.awake ? '醒着' : '睡着';
-    pill.className = 'pill' + (s.awake ? ' awake' : '');
+    pill.textContent = s.paused ? '已暂停' : (s.awake ? '醒着' : '睡着');
+    pill.className = 'pill' + (s.paused ? ' paused' : (s.awake ? ' awake' : ''));
     const mins = s.awake ? Math.max(0, Math.round((s.wake_remaining_seconds || 0) / 60)) : 0;
-    $('now').textContent = s.awake
-      ? '她醒着。这次清醒还剩约 ' + mins + ' 分钟，之后会自然睡去。'
-      : '她睡着了。身体还在，闹钟和邮件轮询也在；你发消息会立刻叫醒她。';
+    $('now').textContent = s.paused
+      ? '操作员暂停了模型调用。消息仍会写进 L1，但不会叫醒她；恢复后她会看到。'
+      : (s.awake
+        ? '她醒着。这次清醒还剩约 ' + mins + ' 分钟，之后会自然睡去。'
+        : '她睡着了。身体还在，闹钟和邮件轮询也在；你发消息会立刻叫醒她。');
     const ls = t.last_sleep;
     $('sleep-note').textContent = ls && ls.content ? '上一次睡去：' + fmt(ls.ts) + '。' + (ls.content.length > 160 ? ls.content.slice(0,160) + '…' : ls.content) : '还没有睡去记录。';
     const alarm = (t.alarms || [])[0];
@@ -167,7 +172,7 @@ $('form').addEventListener('submit', async (ev) => {
   const text = $('text').value.trim();
   if (!text) return;
   $('send').disabled = true; $('send').textContent = '…';
-  $('send-note').textContent = '她正在读。最多等三分钟。';
+  $('send-note').textContent = paused ? '她被操作员暂停了；消息会写入 L1，恢复后再看。' : '她正在读。最多等三分钟。';
   try {
     const data = await api('/message', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ content:text, id:'web-' + Date.now() }) });
     if (data.reply) { $('text').value = ''; $('send-note').textContent = '已回复。'; }
@@ -259,7 +264,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
-        if path not in ("/message", "/sleep"):
+        if path not in ("/message", "/sleep", "/pause", "/resume"):
             self._json(404, {"error": "not found"})
             return
         if not self._authorized():
@@ -272,7 +277,18 @@ class _Handler(BaseHTTPRequestHandler):
         except (ValueError, UnicodeDecodeError):
             self._json(400, {"error": "invalid JSON"})
             return
+        if path == "/pause":
+            result = self.channel.service.pause(reason=str(payload.get("reason") or "operator"))
+            self._json(200, {"ok": True, **result})
+            return
+        if path == "/resume":
+            result = self.channel.service.resume()
+            self._json(200, {"ok": True, **result})
+            return
         if path == "/sleep":
+            if self.channel.service.is_paused():
+                self._json(409, {"error": "paused; resume first"})
+                return
             if not self.channel.service.window.is_awake():
                 self._json(409, {"error": "not awake"})
                 return

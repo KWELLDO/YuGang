@@ -53,6 +53,18 @@ curl -fsS -X POST http://127.0.0.1:3198/message \
 
 Operators can end the current window immediately with an authenticated `POST /sleep` (body optional: `{"reason":"..."}`). It runs the same sleep protocol in the live process and returns the applied result; normal sleep still happens on the idle window. This endpoint is for deployment checks and manual consolidation, not for her.
 
+`POST /pause` stops model calls and autonomous wakes without pretending she slept. Messages that arrive while paused are written to L1 and answered with a system notice (not her voice); they stay buffered and are replayed by `POST /resume`. If she was awake, pausing ends the window and records that this was not a sleep, so there is no fake diary.
+
+```bash
+curl -fsS -X POST http://127.0.0.1:3198/pause \
+  -H "Authorization: Bearer $YUGANG_HTTP_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"reason":"maintenance"}'
+curl -fsS -X POST http://127.0.0.1:3198/resume \
+  -H "Authorization: Bearer $YUGANG_HTTP_TOKEN"
+```
+
+`/status` exposes `paused` and `pause.reason`; `/sleep` returns 409 while paused.
+
 A small client wraps this so a phone/laptop only needs the existing SSH access:
 
 ```bash

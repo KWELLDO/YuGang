@@ -181,6 +181,55 @@ def test_operator_can_end_a_wake_window_through_the_http_sleep_endpoint(running)
         channel.stop()
 
 
+def test_operator_can_pause_and_resume_through_http(running):
+    service, store, _cfg = running
+    channel = HttpChannel("127.0.0.1", 0, token="s3cret")
+    channel.bind(service)
+    channel.start(service.handle_incoming)
+    port = channel._server.server_address[1]
+    try:
+        assert _request(port, "POST", "/pause", {"reason": "maintenance"})[0] == 401
+        status, payload = _request(port, "POST", "/pause", {"reason": "maintenance"}, token="s3cret")
+        assert status == 200 and payload["paused"] is True
+
+        status, status_payload = _request(port, "GET", "/status", token="s3cret")
+        assert status == 200
+        assert status_payload["paused"] is True
+        assert status_payload["pause"]["reason"] == "maintenance"
+
+        # Sleep is a model-backed operation, so it is unavailable while paused.
+        assert _request(port, "POST", "/sleep", {}, token="s3cret")[0] == 409
+
+        status, reply = _request(
+            port,
+            "POST",
+            "/message",
+            {"content": "暂停时发的", "id": "paused-1"},
+            token="s3cret",
+        )
+        assert status == 200
+        assert "操作员暂停" in reply["reply"]
+        assert service.window.is_awake() is False
+
+        status, resumed = _request(port, "POST", "/resume", {}, token="s3cret")
+        assert status == 200 and resumed["paused"] is False
+        status, status_payload = _request(port, "GET", "/status", token="s3cret")
+        assert status == 200 and status_payload["paused"] is False
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            row = store.conn.execute(
+                "SELECT status, meta FROM messages WHERE direction = 'in' AND content = ?",
+                ("暂停时发的",),
+            ).fetchone()
+            if row and row["status"] == "processed" and "echo:" in (row["meta"] or ""):
+                break
+            time.sleep(0.05)
+        assert row is not None and row["status"] == "processed"
+    finally:
+        channel.stop()
+
+
 def test_fish_tank_page_requires_token_and_speaks_html(running):
     service, _store, _cfg = running
     channel = HttpChannel("127.0.0.1", 0, token="s3cret")

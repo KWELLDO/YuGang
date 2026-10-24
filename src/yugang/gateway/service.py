@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import time
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -93,6 +95,10 @@ class GatewayService:
         Recovery reuses the original message/event ids instead of calling
         receive_message again, so no duplicate L1 event is created.
         """
+        if self.is_paused():
+            # Leave the backlog in L1 while paused. Resume requeues it; do not
+            # send a second paused notice on every process restart.
+            return
         try:
             messages = self.store.recoverable_messages()
         except Exception as exc:
@@ -119,6 +125,64 @@ class GatewayService:
             f"恢复了 {len(messages)} 条上次没有处理完的消息。",
             meta={"count": len(messages)},
         )
+
+    # -------------------------------------------------------------------- pause
+    def is_paused(self) -> bool:
+        return Path(self.config.pause_file).exists()
+
+    def paused_info(self) -> dict[str, Any] | None:
+        path = Path(self.config.pause_file)
+        if not path.exists():
+            return None
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8") or "{}")
+        except (OSError, ValueError):
+            raw = {}
+        return {
+            "reason": str(raw.get("reason") or "operator pause"),
+            "at": str(raw.get("at") or ""),
+        }
+
+    def pause(self, *, reason: str = "operator") -> dict[str, Any]:
+        """Stop all model calls without pretending to be asleep.
+
+        A paused gateway still records incoming messages in L1, tells the sender
+        that she is paused, and leaves the message pending. Resume requeues it,
+        so a pause cannot silently swallow a message.
+        """
+        self.config.ensure_dirs()
+        reason = str(reason or "operator").strip()[:500] or "operator"
+        path = Path(self.config.pause_file)
+        path.write_text(
+            json.dumps({"reason": reason, "at": now_iso(), "by": "operator"}, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+        self.store.append_event(
+            "system",
+            "note",
+            f"操作员暂停网关：{reason}",
+            meta={"paused": True, "reason": reason},
+        )
+        if self.window.is_awake():
+            self._end_wake()
+            self.store.append_event(
+                "system",
+                "note",
+                "暂停结束了当前清醒窗口；这不是睡眠，没有睡去日记。",
+                meta={"paused": True},
+            )
+        return {"paused": True, **self.paused_info()}
+
+    def resume(self) -> dict[str, Any]:
+        path = Path(self.config.pause_file)
+        path.unlink(missing_ok=True)
+        self.store.append_event("system", "note", "操作员恢复网关：模型调用重新开放。", meta={"paused": False})
+        self._recover_pending()
+        return {"paused": False}
 
     def stop(self) -> None:
         self._stop.set()
@@ -191,6 +255,9 @@ class GatewayService:
 
     def process_message(self, incoming: IncomingMessage) -> str | None:
         now = self.now_fn()
+        if self.is_paused():
+            self._buffer_while_paused(incoming, now)
+            return None
         message_id = incoming.message_id
         if not message_id:
             message = self.store.message_by_external(incoming.channel, incoming.external_id)
@@ -233,6 +300,47 @@ class GatewayService:
         self.window.transcript.append({"role": "assistant", "content": text})
         self._finalize(incoming, text, now=now, awareness=awareness)
         return text
+
+    def _buffer_while_paused(self, incoming: IncomingMessage, now: datetime) -> None:
+        """Tell the sender the truth, keep the message pending for resume."""
+        notice = (
+            "（系统）她暂时被操作员暂停，模型不会醒来。你的消息已写入 L1，"
+            "恢复后会看到；这不是她的回答。"
+        )
+        refs = [ref for ref in (incoming.message_id, incoming.event_id) if ref]
+        self.store.append_event(
+            "system",
+            "note",
+            f"暂停期间收到消息，已缓冲：{incoming.content[:120]}",
+            channel=incoming.channel,
+            refs=refs,
+            meta={"paused": True, "message_id": incoming.message_id},
+            ts=now.isoformat(timespec="microseconds"),
+        )
+        self.store.record_message(
+            incoming.channel,
+            notice,
+            direction="out",
+            sender="system",
+            meta={"paused": True, "reply_to": incoming.message_id},
+        )
+        incoming.finish(notice)
+        channel = self._channel(incoming.channel)
+        if channel is not None and incoming.channel != "http":
+            try:
+                delivered = channel.send(
+                    incoming.sender, notice, meta={"subject": (incoming.meta or {}).get("subject")}
+                )
+                if delivered is False:
+                    raise RuntimeError("channel.send returned False")
+            except Exception as exc:
+                self.store.append_event(
+                    "system",
+                    "error",
+                    f"暂停通知投递失败 via {incoming.channel}：{type(exc).__name__}: {exc}",
+                    channel=incoming.channel,
+                    refs=refs,
+                )
 
     def _finalize(
         self,
@@ -366,6 +474,16 @@ class GatewayService:
         if monotonic - self._last_idle_check < 2.0:
             return
         self._last_idle_check = monotonic
+        if self.is_paused():
+            if self.window.is_awake():
+                self._end_wake()
+                self.store.append_event(
+                    "system",
+                    "note",
+                    "暂停期间结束当前清醒窗口；这不是睡眠，没有睡去日记。",
+                    meta={"paused": True},
+                )
+            return
         if self.window.is_awake():
             if self.window.should_sleep(now):
                 self.sleep_window(reason="清醒窗口结束")
@@ -407,6 +525,8 @@ class GatewayService:
 
     def autonomous_wake(self, reason: str) -> str | None:
         now = self.now_fn()
+        if self.is_paused():
+            return None
         if self.window.is_awake():
             return None
         wake_event = self._record_wake(reason, now)
@@ -446,6 +566,8 @@ class GatewayService:
 
     # --------------------------------------------------------------------- sleep
     def sleep_window(self, *, reason: str = "清醒窗口结束") -> dict[str, Any] | None:
+        if self.is_paused():
+            return None
         if not self.window.is_awake():
             return None
         now = self.now_fn()
@@ -560,9 +682,12 @@ class GatewayService:
         now = self.now_fn()
         summary = self.budget.summary(now)
         pending_alarms = self.store.pending_alarms(limit=1)
+        paused = self.paused_info()
         return {
             "name": self.config.name,
             "awake": self.window.is_awake(),
+            "paused": paused is not None,
+            "pause": paused,
             "next_alarm": _jsonable(pending_alarms[0]) if pending_alarms else None,
             "wake_remaining_seconds": round(self.window.remaining(now), 1),
             "wake_elapsed_seconds": round(self.window.elapsed(now), 1),

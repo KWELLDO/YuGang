@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 02:52 CST（Asia/Shanghai）
+更新时间：2026-10-25 03:16 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -16,7 +16,7 @@
 
 ## 已验证
 
-- 自动化测试：51 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest）。
+- 自动化测试：54 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -61,14 +61,14 @@
 - 睡去协议现在允许她在 `next_wake_minutes` 里决定下一次自己什么时候醒；但出生头 7 天不开放，默认 `self_alarms_enabled=true`、`self_alarms_after_days=7`。以第一次事件（2026-10-24T16:30:02Z）计算，开放时间约为 2026-10-31T16:30Z（2026-11-01 00:30 CST）。
 - 范围 30–1560 分钟（30 分钟–26 小时），每天最多 6 次；范围外/超次数会拒绝并在 sleep 结果里记 `alarm_blocked=true`，不会偷偷截断。
 - 闹钟到点且她仍睡着时，`idle_tick` 先于每日保底触发 `autonomous_wake("她设的闹钟 <id>")`；醒来 prompt 会明确说“这是你自己设的闹钟”。成功标记 `fired`，预算/运行时失败标记 `missed` 并在 L1 留痕。
-- 测试：`test_self_alarm_is_created_after_grace_and_clamped_by_range`、`test_self_alarm_is_blocked_during_the_first_week`、`test_due_alarm_wakes_her_and_is_marked_fired`、`test_parse_sleep_output_accepts_next_wake_minutes`；全量 **51 passed**。
+- 测试：`test_self_alarm_is_created_after_grace_and_clamped_by_range`、`test_self_alarm_is_blocked_during_the_first_week`、`test_due_alarm_wakes_her_and_is_marked_fired`、`test_parse_sleep_output_accepts_next_wake_minutes`；全量 **54 passed**。
 - 已部署到云端并重启；`/status` 新增 `next_alarm`（当前 null），`/tank` 新增 `alarms`。云端 events=67、awake=false、budget 0.23414/5 元。
 
 ### 觉察卡 → SELF.md 修订（02:58 CST，代码完成）
 
 - 睡去复核一张卡时，`accepted` 可以带一条 `self_edit`（section/op/text）。系统不信任这条 edit 自带的证据：它把该卡创建时的 `evidence_refs` 注入进去，再走与普通 SELF 修订相同的章节/op/真实事件校验；校验不过就只记录复核、不产生 SELF 版本。
 - 新 SELF 版本的 `reason` 会写出 `接受觉察卡 <card_id>`；diff 事件与证据注释照旧，之后仍可 review / supersede。
-- 测试 `test_accepted_awareness_card_can_justify_a_self_edit` 覆盖成功链条与证据注入；全量 **51 passed**。
+- 测试 `test_accepted_awareness_card_can_justify_a_self_edit` 覆盖成功链条与证据注入；全量 **54 passed**。
 
 ### 觉察卡 → SELF v2（03:03 CST，A2 闭环）
 
@@ -80,9 +80,16 @@
 - 19:05:23 重启验证 A1：新进程没有聊天上下文，她仍凭 SELF.md + L1 回答「我是谁 / 上一次清醒做了什么 / 这次想做什么」，并读出 SELF v2 新增条目与其证据；她正确说明这是重启中断，不是睡眠。19:05:52 睡去，events=86。
 - 19:06:23 手动备份：db 643072 bytes、integrity=ok、events=86；SELF.md 与 manifest 一并落盘。
 
+### 操作员暂停/恢复（03:16 CST，代码完成）
+
+- 新增 `POST /pause` 与 `POST /resume`（Bearer/`?token=` 鉴权）。暂停只停模型与自主唤醒，不伪造睡眠：若当时醒着，结束清醒窗口并写一条 system note「这不是睡眠，没有睡去日记」。
+- 暂停期间收到的消息仍写入 L1，并立即回一条系统通知说明「她被暂停，消息已写入 L1，恢复后看到，这不是她的回答」；消息保持 `received`，恢复时由 `_recover_pending()` 重放，不能静默吞掉。
+- 暂停时 `/sleep` 返回 409；`/status` 增加 `paused` 与 `pause`（reason/at）；鱼缸页显示「已暂停」并说明消息会缓冲。
+- 新增测试 `test_pause_buffers_messages_and_resume_answers_them`、`test_pause_does_not_fake_a_sleep`、`test_operator_can_pause_and_resume_through_http`；全量 **54 passed**。
+
 ## 进行中 / 下一步
 
-- 把 DSH 接成她的推理运行时（目前 3199 只是运维控制台，不参与她的唤醒/记忆写入）。
+- DSH 的定位已定（DECISIONS 020）：3199 只是运维控制台，不接成她的推理运行时，不写她的 L1；她的身体与推理运行时仍是 YuGang（3198）。
 - 自己的醒来闹钟已做成可执行机制，等出生满 7 天后（2026-11-01 00:30 CST 左右）观察她第一次实际使用；接下来验证“无人提示时先读记忆”。
 - 历史重复的 open loop 已清掉：`loop_20261024T165014454238_786260` 状态为 `dropped`，保留一条同名 open（`loop_20261024T170720895988_ee56e9`）；当前 open loops 为 3 条（另一条是“核对 L1 与 SELF.md”，一条是“验证无人追问时先读记忆”）。
 - IM 通道：微信/QQ 需要公网回调或非官方桥，尚未接入。

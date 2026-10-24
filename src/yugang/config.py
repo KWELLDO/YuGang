@@ -137,6 +137,11 @@ class Config:
     def config_path(self) -> str:
         return str(Path(self.home) / "config.json")
 
+    @property
+    def pause_file(self) -> str:
+        """Operator switch: presence means no model calls, no autonomous wake."""
+        return str(Path(self.home) / "PAUSED")
+
     def ensure_dirs(self) -> None:
         for p in (self.home, self.workspace):
             Path(p).mkdir(parents=True, exist_ok=True)
