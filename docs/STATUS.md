@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 04:52 CST（Asia/Shanghai）
+更新时间：2026-10-25 04:58 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：77 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
+- 自动化测试：78 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -185,3 +185,8 @@
 - `build_wake_context()` 的「主观时间」段现在显式写本地时间（例如 `现在：2026-10-25 20:34:56（Asia/Shanghai）`），不再只给「距离上次睡去多久」。
 - 用户消息仍用消息内容做 recall；自主醒来（query 为空）改用上次睡去留下的 `next_intent`，再退到最早一条未闭合事项，不再跳过回忆。
 - 新增 `test_wake_context_includes_the_current_local_time`、`test_autonomous_wake_recalls_the_intention_left_before_sleep`；全量 **77 passed**。
+## 修复 SELF 恢复只改数据库、不改文件（04:58 CST，代码完成）
+
+- 发现 `self-restore` CLI 只提交了 `self_versions`，没有重写 `SELF.md` 文件；醒来读的是文件，会出现「数据库已回滚、文件还是旧版本」。
+- `cmd_self_restore` 现在在提交后调用 `write_self_file(cfg, version.content)`，并在输出里回传 `self_path`。
+- 新增 CLI 级测试 `test_self_restore_cli_writes_the_self_file`；全量 **78 passed**。

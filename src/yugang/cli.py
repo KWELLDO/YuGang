@@ -25,7 +25,7 @@ from .memory.store import MemoryStore
 from .runtime.mock import MockRuntime
 from .runtime.openai_compat import OpenAICompatRuntime
 from .selfmodel.awareness import merge_similar_cards
-from .selfmodel.self_md import bootstrap_self
+from .selfmodel.self_md import bootstrap_self, write_self_file
 
 
 def _jsonable(value: Any) -> Any:
@@ -212,7 +212,8 @@ def cmd_self_restore(args: argparse.Namespace) -> int:
     cfg = load_config(args)
     store = make_store(cfg)
     version = store.restore_self(args.version_id, args.reason, actor=args.actor)
-    _print_json({"ok": True, "id": version.id, "ts": version.ts, "reason": version.reason, "evidence_refs": version.evidence_refs})
+    write_self_file(cfg, version.content)
+    _print_json({"ok": True, "id": version.id, "ts": version.ts, "reason": version.reason, "evidence_refs": version.evidence_refs, "self_path": cfg.self_path})
     return 0
 
 

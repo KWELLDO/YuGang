@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+
+from yugang.cli import main
 
 
 def test_self_restore_creates_a_new_version_without_deleting_history(store):
@@ -35,3 +39,11 @@ def test_self_restore_creates_a_new_version_without_deleting_history(store):
         store.restore_self("self_missing", "不存在")
     with pytest.raises(ValueError):
         store.restore_self(second.id, "  ")
+
+
+def test_self_restore_cli_writes_the_self_file(store, cfg):
+    first = store.current_self_version()
+    evidence = store.append_event("human", "message", "一条用于修订的材料")
+    store.commit_self(first.content + "\n- 临时修订。\n", "临时修订", [evidence.id])
+    assert main(["--home", cfg.home, "self-restore", first.id, "--reason", "CLI 测试"]) == 0
+    assert Path(cfg.self_path).read_text(encoding="utf-8") == first.content
