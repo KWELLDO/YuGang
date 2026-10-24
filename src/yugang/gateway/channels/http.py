@@ -162,7 +162,8 @@ function renderBeliefs(judgments) {
     const d = el('div','item');
     d.append(el('div','claim', j.claim || ''));
     const meta = el('div','meta');
-    meta.append(tag(j.status === 'open' ? '待验证' : (j.status || '待验证'), j.status === 'open'));
+    const labels = {open:'待验证', supported:'已被支持', 'needs-evidence':'需更多证据', refuted:'已被推翻'};
+    meta.append(tag(labels[j.status] || j.status || '待验证', j.status === 'open'));
     meta.append(document.createTextNode('置信 ' + (j.confidence ?? '?') + ' · 证据 ' + ((j.evidence_refs || []).length) + ' 条'));
     d.append(meta);
     if (j.falsifier) d.append(el('div','falsifier', '会被什么推翻：' + j.falsifier));
@@ -172,7 +173,7 @@ function renderBeliefs(judgments) {
 function renderAwareness(cards) {
   const box = $('awareness'); box.replaceChildren();
   const rows = (cards || []).filter(c => c.status === 'open' || c.status === 'needs-evidence').slice(0, 6);
-  $('awareness-count').textContent = rows.length ? rows.length + ' 张待验证' : '';
+  $('awareness-count').textContent = rows.length ? rows.length + ' 张待复核' : '';
   if (!rows.length) { box.append(el('div','muted','目前没有还没验证的自我觉察。')); return; }
   for (const c of rows) {
     const d = el('div','item');

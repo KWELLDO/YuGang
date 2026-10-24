@@ -119,6 +119,8 @@
 - 只有本次睡去之前就已存在的判断可以被复核；同一轮新生成的判断不能自己确认自己。每条复核必须引用至少一个真实 L1 事件，且不能只引用本次生成的日记。
 - `supported` 会像手动复核一样增加 `event_confirmations`，从而小幅提高该事件在未来 recall 中的权重；`needs-evidence` 不会把判断永久搁置，它仍出现在下一次睡去 prompt 里。
 - 新增测试 `test_sleep_prompt_lists_open_judgments_for_review`、`test_sleep_reviews_an_open_judgment_but_not_a_judgment_created_tonight`、`test_parse_sleep_output_keeps_valid_judgment_reviews_only`、`test_needs_evidence_card_stays_reviewable`；全量 **63 passed**。
+- 19:48:40 唤醒后她先复核的是觉察卡而不是 L2；19:48:58 睡去时 `judgment_reviews=1`、`awareness_reviews=1`：旧判断 `judg_20261024T192637291598_33f736` 被判 `supported`，引用 3 条真实 L1（`evt_...13a36e`、`evt_...a3f075`、`evt_...60700e`），三条 `event_confirmations` 各加 1；卡 `card_20261024T192335965567_4ac750` 被判 `needs-evidence`，注明「今天一致」不等于「新证据」。
+- 部署后状态：events=109、awake=false、budget 0.45533/5 元（chat 0.200434 + sleep 0.254896）、channels=[http,email]。鱼缸页的 L2 状态已改为中文标签（待验证/已被支持/需更多证据/已被推翻），`needs-evidence` 卡不再从页面消失。
 
 ## 进行中 / 下一步
 
