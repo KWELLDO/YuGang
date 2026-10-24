@@ -300,12 +300,49 @@ def test_sleep_cannot_close_a_loop_that_was_not_open_before_tonight(store, cfg):
     assert applied["open_loops"] == 1
 
 
+def test_sleep_can_update_an_open_loop_reason_without_closing_it(store, cfg):
+    loop = store.add_open_loop("核对 L1 与 SELF.md", detail="SELF.md 还是空的")
+    result = SleepResult(
+        diary="那条 loop 的理由已经过时了。",
+        loop_updates=[
+            {
+                "loop_id": loop.id,
+                "detail": "SELF.md 已经改过一次，问题变成没有形成每次核 diff 的习惯",
+                "note": "当前证据显示正文已改，旧理由不准确",
+            }
+        ],
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    assert applied["loop_updates"] == 1
+    row = store.conn.execute("SELECT detail, status FROM open_loops WHERE id = ?", (loop.id,)).fetchone()
+    assert row["status"] == "open"
+    assert "核 diff 的习惯" in row["detail"]
+    assert any(
+        event.kind == "action" and "updated loop" in event.content
+        for event in store.events(limit=10)
+    )
+
+
+def test_sleep_cannot_update_a_loop_that_was_not_open_before_tonight(store, cfg):
+    result = SleepResult(
+        diary="更新一条不存在的事。",
+        loop_updates=[{"loop_id": "loop_fake", "detail": "新的理由", "note": "假装更新"}],
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    assert applied["loop_updates"] == 0
+
+
 def test_parse_sleep_output_keeps_only_well_formed_loop_closures():
     from yugang.protocol.sleep import parse_sleep_output
 
     text = json.dumps(
         {
-            "diary": "今天关掉一件、留下两件。",
+            "diary": "今天关掉一件、改一件、留下两件。",
+            "loop_updates": [
+                {"loop_id": "loop_ok", "detail": "新的理由", "note": "旧理由过时"},
+                {"loop_id": "loop_no_note", "detail": "没有 note"},
+                {"loop_id": "", "detail": "没有 id", "note": "无效"},
+            ],
             "closed_loops": [
                 {"loop_id": "loop_ok", "status": "dropped", "note": "决定不做了"},
                 {"loop_id": "loop_no_note", "status": "done"},
@@ -316,6 +353,9 @@ def test_parse_sleep_output_keeps_only_well_formed_loop_closures():
     )
     parsed = parse_sleep_output(text)
     assert parsed.parsed is True
+    assert parsed.loop_updates == [
+        {"loop_id": "loop_ok", "detail": "新的理由", "due": None, "note": "旧理由过时"}
+    ]
     assert parsed.closed_loops == [
         {"loop_id": "loop_ok", "status": "dropped", "note": "决定不做了"}
     ]

@@ -23,6 +23,7 @@ class SleepResult:
     judgments: list[dict[str, Any]] = field(default_factory=list)
     stance: str | None = None
     open_loops: list[dict[str, Any]] = field(default_factory=list)
+    loop_updates: list[dict[str, Any]] = field(default_factory=list)
     closed_loops: list[dict[str, Any]] = field(default_factory=list)
     next_intent: str | None = None
     self_edit: str | None = None
@@ -120,6 +121,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
   "judgment_reviews": [{{"judgment_id": "judg_...", "verdict": "supported|refuted|needs-evidence", "evidence_refs": ["evt_..."], "note": "今天的哪条证据支持或推翻了它"}}],
   "stance": "一句当前立场（薄，不写人设）或 null",
   "open_loops": [{{"title": "...", "detail": "...", "due": null}}],
+  "loop_updates": [{{"loop_id": "loop_...", "detail": "新的理由/进展", "due": null, "note": "为什么改"}}],
   "closed_loops": [{{"loop_id": "loop_...", "status": "done|dropped", "note": "为什么现在可以关闭"}}],
   "next_intent": "下次醒来想做什么（一句）或 null",
   "self_edits": [{{"section": "我相信什么", "op": "append", "text": "要加入或替换的内容", "evidence_refs": ["evt_..."]}}],
@@ -136,6 +138,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 - 只有今天的真实经历支持时才改 SELF.md；不要为了显得一致或「应该自我改进」而改。
 - awareness_reviews 只能引用上面 open / needs-evidence cards 的真实 card_id；没有新证据就留空，或用 status=open 只记一条 note（卡仍保持 open）。不要为了关闭而关闭。
 - 只有 status=accepted 的卡才可以带 self_edit；system 会用该卡自己的 evidence_refs，所以 self_edit 里不用再填 evidence_refs。没有真的改变 SELF.md 就不带 self_edit。
+- loop_updates 只能引用上面「未闭合的事」里仍然 open 的 loop_id；只改 detail/due，不改标题，也不关闭；必须写 note。已经做完或决定不做就用 closed_loops。
 - closed_loops 只能引用上面「未闭合的事」里已经存在的 loop_id；status 只能是 done（做完了）或 dropped（决定不做了），并写一条 note 说明依据。今晚新提出的 open_loops 不能在同一轮被关闭。没做完就留 open，不要为了清空列表而关闭。
 - next_wake_minutes 只在上面允许时填；范围外或没有真实需要就填 null。"""
     return [
@@ -211,6 +214,19 @@ def parse_sleep_output(text: str) -> SleepResult:
         if not title:
             continue
         loops.append({"title": title, "detail": item.get("detail"), "due": item.get("due")})
+    loop_updates: list[dict[str, Any]] = []
+    for item in data.get("loop_updates") or []:
+        if not isinstance(item, dict):
+            continue
+        loop_id = str(item.get("loop_id") or "").strip()
+        detail = str(item.get("detail") or "").strip()
+        note = str(item.get("note") or "").strip()
+        due = item.get("due")
+        if not loop_id or not detail or not note:
+            continue
+        loop_updates.append(
+            {"loop_id": loop_id, "detail": detail, "due": due, "note": note}
+        )
     closed_loops: list[dict[str, Any]] = []
     for item in data.get("closed_loops") or []:
         if not isinstance(item, dict):
@@ -281,6 +297,7 @@ def parse_sleep_output(text: str) -> SleepResult:
         judgments=judgments,
         stance=(str(data.get("stance")).strip() if data.get("stance") else None),
         open_loops=loops,
+        loop_updates=loop_updates,
         closed_loops=closed_loops,
         next_intent=(str(data.get("next_intent")).strip() if data.get("next_intent") else None),
         self_edit=self_edit,
@@ -372,6 +389,21 @@ def apply_sleep_result(
             store.add_open_loop(title, detail=item.get("detail"), due=item.get("due"), refs=base_refs)
             existing_loops.add(title)
             applied_loops += 1
+        except (ValueError, TypeError):
+            continue
+    applied_updates = 0
+    for item in result.loop_updates:
+        loop_id = str(item.get("loop_id") or "").strip()
+        detail = str(item.get("detail") or "").strip()
+        note = str(item.get("note") or "").strip()
+        if loop_id not in preexisting_loop_ids or not detail or not note:
+            continue
+        due = item.get("due")
+        if not (isinstance(due, str) and due.strip()):
+            due = None
+        try:
+            if store.update_open_loop(loop_id, detail, due=due, note=note):
+                applied_updates += 1
         except (ValueError, TypeError):
             continue
     applied_closures = 0
@@ -495,6 +527,7 @@ def apply_sleep_result(
             "judgment_reviews": applied_judgment_reviews,
             "stance": bool(stance),
             "open_loops": applied_loops,
+            "loop_updates": applied_updates,
             "closed_loops": applied_closures,
             "awareness_reviews": applied_reviews,
             "awareness_self_edits": awareness_self_edits,
@@ -513,6 +546,7 @@ def apply_sleep_result(
         "judgment_reviews": applied_judgment_reviews,
         "stance": bool(stance),
         "open_loops": applied_loops,
+        "loop_updates": applied_updates,
         "closed_loops": applied_closures,
         "awareness_reviews": applied_reviews,
         "awareness_self_edits": awareness_self_edits,

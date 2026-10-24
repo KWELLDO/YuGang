@@ -136,6 +136,13 @@
 - 关闭调用 `store.close_open_loop`，会追加 L1 `ai-observation/action`（带原 loop 的 refs），而不是静默 UPDATE；sleep meta/return 增加 `closed_loops` 计数。
 - 测试：`test_sleep_can_close_a_preexisting_open_loop`、`test_sleep_cannot_close_a_loop_that_was_not_open_before_tonight`、`test_parse_sleep_output_keeps_only_well_formed_loop_closures`；全量 **67 passed**。
 
+### 未闭合事项的理由可以更新（04:10 CST，代码完成）
+
+- 真实对话暴露出旧 loop 的 detail 会过时：`loop_20261024T170720902655_9bcb29` 写着「SELF.md 的我相信什么/我在做什么仍为空」，但 SELF v2 已经改过「我相信什么」；之前只能关掉重开，会丢历史。
+- `SleepResult.loop_updates` + `MemoryStore.update_open_loop(loop_id, detail, due=..., note=...)`：只更新仍 open 的 loop 的 detail/due，不改标题，不关闭；必须写 note；追加 L1 `ai-observation/action`「updated loop: ...」并带原 refs。
+- sleep prompt/schema 增加 `loop_updates`，规则与 `closed_loops` 分开：理由过时用 update，做完了用 close。`apply_sleep_result` 只接受睡去前已 open 的 loop；sleep meta/return 增加 `loop_updates` 计数。
+- 测试：`test_sleep_can_update_an_open_loop_reason_without_closing_it`、`test_sleep_cannot_update_a_loop_that_was_not_open_before_tonight`，parse 测试加入合法/缺 note/缺 id 三种输入；全量 **69 passed**。
+
 ## 进行中 / 下一步
 
 - DSH 的定位已定（DECISIONS 020）：3199 只是运维控制台，不接成她的推理运行时，不写她的 L1；她的身体与推理运行时仍是 YuGang（3198）。

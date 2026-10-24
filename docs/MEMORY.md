@@ -33,8 +33,9 @@ beliefs and their refutation conditions before answering — not only the latest
 ## Open loops
 
 An open loop is a commitment or unresolved question. Wake lists the open ones; sleep may add
-new ones, or close an existing one as `done` (finished) or `dropped` (decided not to do it).
-A closure needs a note and can only target a loop that was already open before that sleep — a
+new ones, correct an existing loop's detail/due with `loop_updates`, or close it as `done`
+(finished) or `dropped` (decided not to do it). An update needs a note and only touches the
+reason/due, not the title. A closure needs a note and can only target a loop that was already open before that sleep — a
 loop proposed in the same sleep cannot close itself. Closing writes a separate L1 `action`
 event with the old refs, so the history shows the decision instead of silently flipping a row.
 The table therefore does not grow forever: she can finish or abandon her own commitments,

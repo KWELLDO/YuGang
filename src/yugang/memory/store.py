@@ -836,6 +836,41 @@ class MemoryStore:
         )
         return True
 
+    def update_open_loop(
+        self,
+        loop_id: str,
+        detail: str,
+        *,
+        due: str | None = None,
+        note: str | None = None,
+    ) -> bool:
+        """Update the reason/detail of an open loop, leaving an L1 action."""
+        if not detail.strip():
+            raise ValueError("loop detail must be non-empty")
+        if due:
+            parse_ts(due)
+        row = self.conn.execute("SELECT * FROM open_loops WHERE id = ?", (loop_id,)).fetchone()
+        if not row or row["status"] != "open":
+            return False
+        new_due = due if due is not None else row["due"]
+        self.conn.execute(
+            "UPDATE open_loops SET detail = ?, due = ?, updated_at = ? WHERE id = ?",
+            (detail, new_due, now_iso(), loop_id),
+        )
+        self.append_event(
+            "ai-observation",
+            "action",
+            f"updated loop: {row['title']}",
+            meta={
+                "loop_id": loop_id,
+                "old_detail": row["detail"],
+                "new_detail": detail,
+                "note": note,
+            },
+            refs=_loads(row["refs"], []),
+        )
+        return True
+
     # ----------------------------------------------------------------- messages
 
     def record_message(
