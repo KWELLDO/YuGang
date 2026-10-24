@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 from yugang.config import Config
@@ -79,6 +80,32 @@ def test_a_reply_that_cites_an_old_event_confirms_it(cfg):
         message_event = store.latest_event("message")
         assert message_event is not None and message_event.id != old.id
         assert store.citation_count(message_event.id) == 0
+    finally:
+        service.stop()
+        store.close()
+
+
+def test_the_message_that_wakes_her_is_not_a_confirmed_memory(cfg):
+    store = MemoryStore(cfg.db_path)
+    bootstrap_self(store, cfg)
+
+    def responder(messages, purpose):
+        prompt = "\n".join(m.get("content", "") for m in messages)
+        ids = re.findall(r"\[(evt_[A-Za-z0-9_]+)\] [^\n]*human/message", prompt)
+        cited = ids[-1] if ids else "evt_00000000T000000000000_000000"
+        return f"你刚刚这条 {cited} 是刚发生的，不是我记得的旧事。"
+
+    runtime = MockRuntime(responder=responder)
+    service = GatewayService(cfg, store, runtime)
+    service.start()
+    try:
+        reply = service.chat("刚才那句不算你记得吧？", timeout=10)
+        assert reply
+        message_event = store.latest_event("message")
+        assert message_event is not None
+        assert message_event.id in reply
+        assert store.citation_count(message_event.id) == 0
+        assert _event_confirmations(store, message_event.id) == 0
     finally:
         service.stop()
         store.close()

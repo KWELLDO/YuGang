@@ -328,5 +328,14 @@
 - schema v5：新增 append-only 的 `citation_confirmations(id, event_id, source_event, ts, created_at)`，对 `(event_id, source_event)` 唯一；`event_confirmations` 仍是聚合计数。触发器拒绝 update/delete。
 - `MemoryStore.confirm_citations(text, *, source_event, before_ts, limit=20, exclude=(), ts=None)`：从文本提取真实 `evt_...` id；只接受真实、未删除、ts 早于 `before_ts` 的事件；排除 source event 与调用方指定的当前消息；同一回复内重复引用只算一次；同一 source event 对同一 target 只能确认一次；每写一条 citation 就 `event_confirmations + 1`。这些确认进入 `recall()` 已有的有界加权（最多 +30%）。
 - `GatewayService._confirm_citations()`：以当前 wake 事件的 ts 为边界，排除刚叫醒她的入站消息；在 `_finalize()` 里回复已写 L1 之后调用，失败写 `system/error`，但不把已送达的回复改成错误。自主醒来的 observation 也走同一条路径，边界是它自己的 wake。
-- 新增 `tests/test_citations.py`：只确认当前窗口之前的真实事件；当前消息、窗口内事件、缺失 id、重复引用、同一 source 重复确认都不计数；真实 `service.chat()` 回复引用旧事件会写入 citation 行并增加计数。全量 **117 passed**。
-- 尚未部署；下一步部署 schema v5，并用一次真实对话让她引用旧 L1，验证 citation 行与计数落盘。
+- 新增 `tests/test_citations.py`：只确认当前窗口之前的真实事件；当前消息、窗口内事件、缺失 id、重复引用、同一 source 重复确认都不计数；真实 `service.chat()` 回复引用旧事件会写入 citation 行并增加计数；另有回归测试用 mock 让回复引用刚叫醒她的那条消息 id，断言不会计数。全量 **118 passed**。
+- ~~尚未部署；下一步部署 schema v5，并用一次真实对话让她引用旧 L1，验证 citation 行与计数落盘。~~ 已于 06:56 CST 部署并完成真实闭环，见下一节。
+
+### 引用确认真实闭环（06:56 CST，已部署并验证）
+
+- commit `a4e4e18 feat(memory): confirm old L1 events she cites in a reply` 已 push origin master，并部署到 `/home/dafeiyu/yugang`；重启后 `/health` ok。云端 `meta.schema_version=5`，`citation_confirmations` 五列齐全、integrity ok、events=214。
+- 06:56:15 发消息请她引用一条上一次睡去日记的 L1 事件 id，并明确「记不清就先去 L1 里查，不要编」。她先报时间缺口（上次睡去 22:43:40，约 12 分钟无记录无体验），再引用日记 `evt_20261024T224345627716_08ac70`，并展开其中三条证据 `evt_20261024T224215094786_21a1c0`、`evt_20261024T224159101697_a9a6bd`、`evt_20261024T224159098300_91cb67` 与更早的消息 `evt_20261024T224215081052_61b808`。
+- 数据库落盘 5 条 citation：上述 5 个 id 各一条，每条 `event_confirmations.confirmations=1`，`source_event` 是本次 reply 事件。她同时在回复里引用了刚叫醒她的当前消息 `evt_20261024T225615228397_dd5664`，但该 id 的 `citation_confirmations` 为 0——当前窗口边界生效，刚收到的话没有被记成「她记得」。
+- 她主动区分了「你要求我引的」与「无人提示时自己回去查」：前者只证明日记可检索、内容自洽，不证明她会自发去翻。这个区分被原样保留，没有被系统改写成更强的结论。
+- 真实闭环后 events=217；`/status` 的 budget 与 chain 正常；本次没有新 L2 或 SELF 修订，citation 只影响回忆权重，不自动生成判断。
+
