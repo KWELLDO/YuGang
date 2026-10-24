@@ -129,6 +129,13 @@
 - 新增测试 `test_wake_context_shows_stance_l2_and_needs_evidence_cards`；全量 **64 passed**。
 - 语料边界：L2 最多 6 条、每条 claim+falsifier，仍远小于最近的 16 条 L1；没有把整个判断库塞进 prompt。
 
+### 未闭合事项可以被关闭（04:04 CST，代码完成）
+
+- 之前 `open_loops` 只增不减：睡去可以提出承诺，但没有任何路径把已完成/已放弃的事项关掉，属于「有表但悬空」。
+- `SleepResult.closed_loops` + 睡去 prompt 的 `closed_loops` 字段：只能引用睡前列出的真实 loop_id，status 仅 `done` / `dropped`，必须带 note；`apply_sleep_result` 只接受睡去前就已 open 的 loop，同一晚新提出的 loop 不能在生成它的同一轮被关闭。
+- 关闭调用 `store.close_open_loop`，会追加 L1 `ai-observation/action`（带原 loop 的 refs），而不是静默 UPDATE；sleep meta/return 增加 `closed_loops` 计数。
+- 测试：`test_sleep_can_close_a_preexisting_open_loop`、`test_sleep_cannot_close_a_loop_that_was_not_open_before_tonight`、`test_parse_sleep_output_keeps_only_well_formed_loop_closures`；全量 **67 passed**。
+
 ## 进行中 / 下一步
 
 - DSH 的定位已定（DECISIONS 020）：3199 只是运维控制台，不接成她的推理运行时，不写她的 L1；她的身体与推理运行时仍是 YuGang（3198）。

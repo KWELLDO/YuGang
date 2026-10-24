@@ -23,6 +23,7 @@ class SleepResult:
     judgments: list[dict[str, Any]] = field(default_factory=list)
     stance: str | None = None
     open_loops: list[dict[str, Any]] = field(default_factory=list)
+    closed_loops: list[dict[str, Any]] = field(default_factory=list)
     next_intent: str | None = None
     self_edit: str | None = None
     self_edits: list[dict[str, Any]] = field(default_factory=list)
@@ -119,6 +120,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
   "judgment_reviews": [{{"judgment_id": "judg_...", "verdict": "supported|refuted|needs-evidence", "evidence_refs": ["evt_..."], "note": "今天的哪条证据支持或推翻了它"}}],
   "stance": "一句当前立场（薄，不写人设）或 null",
   "open_loops": [{{"title": "...", "detail": "...", "due": null}}],
+  "closed_loops": [{{"loop_id": "loop_...", "status": "done|dropped", "note": "为什么现在可以关闭"}}],
   "next_intent": "下次醒来想做什么（一句）或 null",
   "self_edits": [{{"section": "我相信什么", "op": "append", "text": "要加入或替换的内容", "evidence_refs": ["evt_..."]}}],
   "accept_self_edit": false,
@@ -134,6 +136,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 - 只有今天的真实经历支持时才改 SELF.md；不要为了显得一致或「应该自我改进」而改。
 - awareness_reviews 只能引用上面 open / needs-evidence cards 的真实 card_id；没有新证据就留空，或用 status=open 只记一条 note（卡仍保持 open）。不要为了关闭而关闭。
 - 只有 status=accepted 的卡才可以带 self_edit；system 会用该卡自己的 evidence_refs，所以 self_edit 里不用再填 evidence_refs。没有真的改变 SELF.md 就不带 self_edit。
+- closed_loops 只能引用上面「未闭合的事」里已经存在的 loop_id；status 只能是 done（做完了）或 dropped（决定不做了），并写一条 note 说明依据。今晚新提出的 open_loops 不能在同一轮被关闭。没做完就留 open，不要为了清空列表而关闭。
 - next_wake_minutes 只在上面允许时填；范围外或没有真实需要就填 null。"""
     return [
         {"role": "system", "content": SLEEP_SYSTEM},
@@ -208,6 +211,16 @@ def parse_sleep_output(text: str) -> SleepResult:
         if not title:
             continue
         loops.append({"title": title, "detail": item.get("detail"), "due": item.get("due")})
+    closed_loops: list[dict[str, Any]] = []
+    for item in data.get("closed_loops") or []:
+        if not isinstance(item, dict):
+            continue
+        loop_id = str(item.get("loop_id") or "").strip()
+        status = str(item.get("status") or "").strip().lower()
+        note = str(item.get("note") or "").strip()
+        if not loop_id or status not in {"done", "dropped"} or not note:
+            continue
+        closed_loops.append({"loop_id": loop_id, "status": status, "note": note})
     self_edit = data.get("self_edit")
     if self_edit is not None:
         self_edit = str(self_edit).strip() or None
@@ -268,6 +281,7 @@ def parse_sleep_output(text: str) -> SleepResult:
         judgments=judgments,
         stance=(str(data.get("stance")).strip() if data.get("stance") else None),
         open_loops=loops,
+        closed_loops=closed_loops,
         next_intent=(str(data.get("next_intent")).strip() if data.get("next_intent") else None),
         self_edit=self_edit,
         self_edits=self_edits,
@@ -348,6 +362,7 @@ def apply_sleep_result(
         except ValueError:
             stance = None
     applied_loops = 0
+    preexisting_loop_ids = {loop.id for loop in store.open_loops(limit=200)}
     existing_loops = {loop.title.strip() for loop in store.open_loops(limit=100)}
     for item in result.open_loops:
         title = str(item.get("title") or "").strip()
@@ -358,6 +373,19 @@ def apply_sleep_result(
             existing_loops.add(title)
             applied_loops += 1
         except (ValueError, TypeError):
+            continue
+    applied_closures = 0
+    for item in result.closed_loops:
+        loop_id = str(item.get("loop_id") or "").strip()
+        status = str(item.get("status") or "").strip().lower()
+        note = str(item.get("note") or "").strip()
+        if loop_id not in preexisting_loop_ids or status not in {"done", "dropped"} or not note:
+            continue
+        try:
+            if store.close_open_loop(loop_id, status=status, note=note):
+                preexisting_loop_ids.discard(loop_id)
+                applied_closures += 1
+        except ValueError:
             continue
     applied_reviews = 0
     card_edits: list[dict[str, Any]] = []
@@ -467,6 +495,7 @@ def apply_sleep_result(
             "judgment_reviews": applied_judgment_reviews,
             "stance": bool(stance),
             "open_loops": applied_loops,
+            "closed_loops": applied_closures,
             "awareness_reviews": applied_reviews,
             "awareness_self_edits": awareness_self_edits,
             "alarm": alarm.id if alarm else None,
@@ -484,6 +513,7 @@ def apply_sleep_result(
         "judgment_reviews": applied_judgment_reviews,
         "stance": bool(stance),
         "open_loops": applied_loops,
+        "closed_loops": applied_closures,
         "awareness_reviews": applied_reviews,
         "awareness_self_edits": awareness_self_edits,
         "alarm": alarm.id if alarm else None,

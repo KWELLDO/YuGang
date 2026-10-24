@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -269,6 +270,55 @@ def test_sleep_applies_judgment_stance_loop_and_self_edit(store, cfg):
     latest_self = store.self_history()[0]
     assert evidence.id in latest_self.evidence_refs
     assert any(loop.title == "下次醒来确认这个承诺" for loop in store.open_loops())
+
+
+def test_sleep_can_close_a_preexisting_open_loop(store, cfg):
+    loop = store.add_open_loop("把这周的实验做完", detail="还没写结论")
+    result = SleepResult(
+        diary="实验记录已经齐了，这件事可以关掉。",
+        closed_loops=[{"loop_id": loop.id, "status": "done", "note": "L1 里已经有完整记录"}],
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    assert applied["closed_loops"] == 1
+    row = store.conn.execute("SELECT status FROM open_loops WHERE id = ?", (loop.id,)).fetchone()
+    assert row["status"] == "done"
+    # Closing leaves an auditable L1 action, not a silent row update.
+    assert any(
+        event.kind == "action" and "closed loop" in event.content
+        for event in store.events(limit=10)
+    )
+
+
+def test_sleep_cannot_close_a_loop_that_was_not_open_before_tonight(store, cfg):
+    result = SleepResult(
+        diary="我想关掉一件并不存在的事。",
+        open_loops=[{"title": "今晚新提出的事"}],
+        closed_loops=[{"loop_id": "loop_fake", "status": "done", "note": "假装做完了"}],
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    assert applied["closed_loops"] == 0
+    assert applied["open_loops"] == 1
+
+
+def test_parse_sleep_output_keeps_only_well_formed_loop_closures():
+    from yugang.protocol.sleep import parse_sleep_output
+
+    text = json.dumps(
+        {
+            "diary": "今天关掉一件、留下两件。",
+            "closed_loops": [
+                {"loop_id": "loop_ok", "status": "dropped", "note": "决定不做了"},
+                {"loop_id": "loop_no_note", "status": "done"},
+                {"loop_id": "loop_bad_status", "status": "open", "note": "不是关闭状态"},
+            ],
+        },
+        ensure_ascii=False,
+    )
+    parsed = parse_sleep_output(text)
+    assert parsed.parsed is True
+    assert parsed.closed_loops == [
+        {"loop_id": "loop_ok", "status": "dropped", "note": "决定不做了"}
+    ]
 
 
 def test_invalid_self_edit_is_rejected(store, cfg):

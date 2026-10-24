@@ -632,7 +632,7 @@ class GatewayService:
                     "role": "user",
                     "content": (
                         "上面的整理没有形成完整 JSON。请重新输出一个更短、完整的 JSON："
-                        "diary 不超过 300 字；judgments 最多 2 条；open_loops 最多 1 条；"
+                        "diary 不超过 300 字；judgments 最多 2 条；open_loops 最多 1 条；closed_loops 最多 1 条；"
                         "stance 与 next_intent 各一句；self_edits 最多 1 条且只用 append。"
                         "不要解释，不要输出完整 SELF.md。"
                     ),

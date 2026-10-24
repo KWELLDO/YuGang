@@ -30,6 +30,16 @@ records the L1/L2 refs it was based on. Every wake context includes the current 
 the latest six L2 judgments (claim, status, confidence, falsifier), so she reads her current
 beliefs and their refutation conditions before answering — not only the latest raw events.
 
+## Open loops
+
+An open loop is a commitment or unresolved question. Wake lists the open ones; sleep may add
+new ones, or close an existing one as `done` (finished) or `dropped` (decided not to do it).
+A closure needs a note and can only target a loop that was already open before that sleep — a
+loop proposed in the same sleep cannot close itself. Closing writes a separate L1 `action`
+event with the old refs, so the history shows the decision instead of silently flipping a row.
+The table therefore does not grow forever: she can finish or abandon her own commitments,
+and the reason remains auditable.
+
 ## Awareness cards
 
 An awareness card is a first-person hypothesis about herself, with a falsifier and real
