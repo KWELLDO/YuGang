@@ -254,3 +254,10 @@
 - 测试：`test_wake_context_reports_body_readings_without_claiming_experience`、`test_body_state_reads_real_counts_and_the_latest_backup`；全量 **95 passed**。
 - 云端真实读数（2026-10-24T21:45:03Z）：她逐项读出 L1 159 条；今天已用 ¥0.79 / ¥5.00、剩余 ¥4.21、状态 ok；最近备份 2026-10-24T21:09:15.874647+00:00；下一次闹钟「还没有设」；通道 http、email；操作员暂停「否」。她明确说明没有看到「正在响的闹钟」字段，因为没有到期闹钟；没有把缺失项编出来。
 - 随后睡去：`parsed=true`、`judgments=0`、`judgment_reviews=0`、`awareness_reviews=0`、`self_committed=false`；diary `evt_20261024T214524390480_dbcee0`、sleep `evt_20261024T214524397082_888281`。`/status`：events=163、awake=false、chain ok、budget 0.83369/5（chat 0.33495 + sleep 0.49874）、next_alarm=null。
+
+### 同一次清醒内带上真实对话历史（05:47 CST，已实现）
+
+- 之前每次模型调用只发 system prompt + 当前 user 消息；`window.transcript` 只用于睡去日记。因此同一清醒窗口内的第二条消息虽然被打上「同一次清醒」标签，却没有真正的对话轮次可看，只能从 L1 的近况里间接拼。
+- `WakeWindow.history(max_chars=6000, max_turns=12)` 返回本窗口最近的 user/assistant 轮次，从旧到新，按字符预算从前面丢弃，不截断一轮；空内容/非法 role 跳过。
+- `GatewayService.process_message` 在 `build_messages` 之后把 history 插到 system 与当前 user 之间；跨清醒时 transcript 为空，仍然只靠 SELF/L1/L2/L3 重建。
+- 回归测试扩展 `test_second_message_in_same_window_is_a_continuation`：第二次调用必须是 `system / user(第一句) / assistant(嗯。) / user(第二句)`，全量 **95 passed**。

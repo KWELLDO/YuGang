@@ -121,6 +121,12 @@ def test_second_message_in_same_window_is_a_continuation(cfg, store):
     assert "同一次清醒" in second_prompt
     assert "第一次醒来" not in second_prompt
     assert len(store.events(kind="wake")) == 1
+    # The second call carries the actual first exchange, not only its L1 echo.
+    second_messages = runtime.calls[1]["messages"]
+    assert [m["role"] for m in second_messages] == ["system", "user", "assistant", "user"]
+    assert second_messages[1]["content"] == "第一句"
+    assert second_messages[2]["content"] == "嗯。"
+    assert second_messages[3]["content"] == "第二句"
 
 
 def test_inline_awareness_is_recorded_before_reply_and_hidden(cfg, store):

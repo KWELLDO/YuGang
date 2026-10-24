@@ -304,6 +304,12 @@ class GatewayService:
             )
             self.window.touch(now)
         messages = build_messages(context, incoming.content)
+        # A second message in the same wake is a continuation of this
+        # conversation, not a fresh retrieval. Keep the actual prior turns
+        # (bounded) between the system context and the new user message.
+        history = self.window.history()
+        if history:
+            messages[1:1] = history
         max_tokens = int(getattr(self.config, "reply_max_tokens", 2000))
         estimated = self.budget.estimate(messages, max_tokens, self.config.model)
         decision = self.budget.check(estimated, kind="chat", user_facing=True, now=now)

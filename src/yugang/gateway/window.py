@@ -41,6 +41,26 @@ class WakeWindow:
         hard_deadline = self.started_at + timedelta(seconds=max(1, self.max_seconds))
         return now >= idle_deadline or now >= hard_deadline
 
+    def history(self, *, max_chars: int = 6000, max_turns: int = 12) -> list[dict[str, str]]:
+        """Return the last few turns of this wake, bounded by size.
+
+        The transcript is what makes a second message in the same wake a real
+        continuation rather than a fresh retrieval over the same system prompt.
+        Old turns are dropped from the front, never silently truncated mid-turn.
+        """
+        kept: list[dict[str, str]] = []
+        total = 0
+        for message in reversed(self.transcript[-max_turns:]):
+            role = str(message.get("role") or "")
+            content = str(message.get("content") or "")
+            if role not in {"user", "assistant"} or not content:
+                continue
+            if kept and total + len(content) > max_chars:
+                break
+            kept.append({"role": role, "content": content})
+            total += len(content)
+        return list(reversed(kept))
+
     def sleep(self) -> None:
         self.started_at = None
         self.last_activity = None
