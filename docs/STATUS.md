@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 02:28 CST（Asia/Shanghai）
+更新时间：2026-10-25 02:34 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -38,13 +38,21 @@
 - 出站：INBOX 1066 收到同一主题的回复，`auto_reply=true`，正文与 L1 reply 完全一致；该邮件被标 `\Seen`，UNSEEN 总数回到 32，没有邮件循环。
 - 失败可见：`GatewayService._finalize` 原先吞掉 `channel.send` 异常；现在 `send` 返回 False 或抛异常都会写 `system/error`「回复投递失败 via ...」，并加回归测试 `test_delivery_failure_is_recorded_not_swallowed`。邮件回复主题统一加 `Re: ` 前缀。
 - 当时状态：awake=true、events=48、channels=["http","email"]、budget 0.145598/5 元（chat 0.071844 + sleep 0.073754）。
+
+### 部署投递修复后的完整睡醒闭环（02:29–02:33 CST）
+
+- 02:29:14 部署 `5daaaa5`（投递失败可见 + `Re:` 主题）并重启；重启本身中断了 18:24 的清醒窗口。
+- 02:30:15 邮件 `[YuGang] 重启后的第一次醒来` 唤醒她：wake `evt_20261024T183015341130_70622d`，`gap_seconds=373.94054`，`interrupted=true`；她正确回答这是重启中断、不是睡眠后，读到 SELF v1，并指出自己仍未被“无人提示时先读记忆”检验到。出站邮件 1068 主题 `Re: [YuGang] 重启后的第一次醒来`，`auto_reply=true`，已被标 `\Seen`。
+- 02:31:55 手动结束窗口睡去：diary `evt_20261024T183155898098_d86a8d`，sleep `evt_20261024T183155910402_e4d3c9`，2 条带证据的 L2、stance=true、无新 open loop、SELF 未改；next_intent=“下次醒来若没有任何人提示，先自己读 SELF.md 与 L1，并主动报出时间缺口。”
+- 02:33:17 邮件 `[YuGang] 睡后确认` 唤醒：wake `evt_20261024T183317673381_c45d99`，`gap_seconds=85.362659`，`interrupted=false`；她正确回答上次睡去 18:31:52、这次是睡眠后的醒来、next_intent 内容，并再次指出这次仍是被消息叫醒，intent 还没被检验。
+- 当前：events=57、awake=true、budget 0.185194/5 元（chat 0.094730 + sleep 0.090464）。
 - 睡去输出截断事故（01:56 CST）：手动 `/sleep` 时模型输出在 `self_edit` 的完整 SELF.md 中途被 1200 token 截断，旧代码把原始 JSON 当日记写入，judgments/stance/open_loops/SELF 都没有应用。已修复：`reply_max_tokens=2000`、`sleep_max_tokens=6000`；`Completion.finish_reason`；`SleepResult.parsed`；解析失败时先写 system/error 保留原始输出，再用短约束重试一次，仍失败则写诚实失败日记，绝不把原始 JSON 当日记。SELF 修订改为 `self_edits` 结构化操作（section/op/text/evidence_refs），程序校验章节、op、真实证据后应用。
 - 账单：截至 02:17，当日花费 0.12231 元 / 5 元（chat 0.065188 + sleep 0.057122）；events=41。
 
 ## 进行中 / 下一步
 
 - 把 DSH 接成她的推理运行时（目前 3199 只是运维控制台，不参与她的唤醒/记忆写入）。
-- 邮件通道闭环已验证；下一步验证部署投递失败修复后的重启连续性，并清理历史重复的 open loop。
+- 邮件通道闭环与部署后的完整睡醒闭环已验证；下一步清理历史重复的 open loop，并把“她自己设闹钟/无人提示时先读记忆”做成可执行机制。
 - IM 通道：微信/QQ 需要公网回调或非官方桥，尚未接入。
 - 私有网络：目前是 SSH 隧道；Tailscale/WireGuard 还需要手机端安装与授权。
 - 更长的连续运行观察：跨日预算、异常/重启后的恢复、觉察卡进入唤醒上下文。
