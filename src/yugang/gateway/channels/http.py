@@ -165,6 +165,7 @@ function renderBeliefs(judgments) {
     const labels = {open:'待验证', supported:'已被支持', 'needs-evidence':'需更多证据', refuted:'已被推翻'};
     meta.append(tag(labels[j.status] || j.status || '待验证', j.status === 'open'));
     meta.append(document.createTextNode('置信 ' + (j.confidence ?? '?') + ' · 证据 ' + ((j.evidence_refs || []).length) + ' 条'));
+    if ((j.supersedes || []).length) meta.append(tag('合并 ' + j.supersedes.length + ' 条旧判断', false));
     d.append(meta);
     if (j.falsifier) d.append(el('div','falsifier', '会被什么推翻：' + j.falsifier));
     box.append(d);

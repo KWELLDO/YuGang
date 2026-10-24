@@ -275,6 +275,15 @@ def test_tank_includes_judgment_and_card_status(running):
     tank = service.tank()
     assert tank["judgments"][0]["claim"] == "我能读到这段记忆。"
     assert tank["judgments"][0]["status"] == "open"
+    old = store.add_judgment("旧说法", "如果被反例推翻", [evidence.id], 0.4)
+    new = store.add_judgment(
+        "合并后的说法", "如果被反例推翻", [evidence.id], 0.6, supersedes=[old.id]
+    )
+    tank = service.tank()
+    ids = {j["id"] for j in tank["judgments"]}
+    assert new.id in ids and old.id not in ids
+    assert tank["judgments"][0]["id"] == new.id
+    assert tank["judgments"][0]["supersedes"] == [old.id]
     assert tank["awareness"][0]["id"] == card.id
     assert tank["awareness"][0]["status"] == "accepted"
 

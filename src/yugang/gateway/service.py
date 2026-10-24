@@ -721,7 +721,11 @@ class GatewayService:
         self_text = self.store.current_self() or ""
         last_sleep = self.store.latest_event("sleep")
         judgments = [
-            {**_jsonable(j), "status": self.store.judgment_status(j.id)}
+            {
+                **_jsonable(j),
+                "status": self.store.judgment_status(j.id),
+                "supersedes": self.store.superseded_targets(j.id),
+            }
             for j in self.store.current_judgments(limit=10)
         ]
         cards = [
