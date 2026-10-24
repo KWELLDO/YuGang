@@ -36,6 +36,7 @@ h1 small { color:var(--dim); font-size:12px; letter-spacing:.18em; margin-left:8
 .claim { font-size:15px; line-height:1.55; }
 .meta { color:var(--dim); font-size:12px; margin-top:4px; }
 .falsifier { color:#a9c6cc; font-size:13px; margin-top:5px; }
+.diff { color:var(--dim); font-size:12px; white-space:pre-wrap; margin:5px 0 0; }
 .tag { display:inline-block; font-size:11px; border:1px solid var(--line); border-radius:999px; padding:1px 7px; margin-right:6px; color:var(--dim); }
 .tag.open { color:var(--warm); border-color:#8a5a22; }
 .status-line { font-size:15px; }
@@ -92,6 +93,11 @@ a { color:var(--accent); }
     <div id="loops" class="muted">—</div>
   </section>
 </div>
+
+<section class="card">
+  <h2>她怎么改过自己 <span id="self-history-count" class="muted"></span></h2>
+  <div id="self-history"></div>
+</section>
 
 <section class="card">
   <h2>她相信什么 <span id="belief-count" class="muted"></span></h2>
@@ -171,6 +177,21 @@ function renderBeliefs(judgments) {
     box.append(d);
   }
 }
+function renderSelfHistory(versions) {
+  const box = $('self-history'); box.replaceChildren();
+  const rows = (versions || []).slice(0, 5);
+  $('self-history-count').textContent = rows.length ? '最近 ' + rows.length + ' 次' : '';
+  if (!rows.length) { box.append(el('div','muted','还没有修订记录。')); return; }
+  for (const v of rows) {
+    const d = el('div','item');
+    d.append(el('div','claim', v.reason || v.id || ''));
+    const meta = el('div','meta');
+    meta.append(document.createTextNode(fmt(v.ts) + ' · 证据 ' + ((v.evidence_refs || []).length) + ' 条 · ' + (v.id || '')));
+    d.append(meta);
+    if (v.diff) d.append(el('pre','diff', String(v.diff).slice(0, 500)));
+    box.append(d);
+  }
+}
 function renderAwareness(cards) {
   const box = $('awareness'); box.replaceChildren();
   const rows = (cards || []).filter(c => c.status === 'open' || c.status === 'needs-evidence').slice(0, 6);
@@ -206,6 +227,7 @@ async function refresh() {
     const alarm = (t.alarms || [])[0];
     $('alarm-note').textContent = alarm ? '下一次自己设的醒来：' + fmt(alarm.due_at) : '';
     $('self').textContent = t.self || '（SELF.md 还没有内容）';
+    renderSelfHistory(t.self_history);
     renderLoops(t.open_loops);
     renderBeliefs(t.judgments);
     renderAwareness(t.awareness);

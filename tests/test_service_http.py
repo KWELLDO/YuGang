@@ -249,6 +249,7 @@ def test_fish_tank_page_requires_token_and_speaks_html(running):
         assert "text/html" in headers["Content-Type"]
         assert "鱼缸" in body and "/message" in body
         assert 'id="beliefs"' in body and 'id="awareness"' in body
+        assert 'id="self-history"' in body
 
         status, headers, _body = _request_raw(
             port, "GET", "/", headers={"Authorization": "Bearer s3cret"}
@@ -286,6 +287,8 @@ def test_tank_includes_judgment_and_card_status(running):
     assert tank["judgments"][0]["supersedes"] == [old.id]
     assert tank["awareness"][0]["id"] == card.id
     assert tank["awareness"][0]["status"] == "accepted"
+    assert tank["self_history"][0]["id"]
+    assert "reason" in tank["self_history"][0]
 
 
 def _request_raw(port, method, path, headers=None):

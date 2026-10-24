@@ -736,6 +736,16 @@ class GatewayService:
             "name": self.config.name,
             "status": self.status(),
             "self": self_text,
+            "self_history": [
+                {
+                    "id": v.id,
+                    "ts": v.ts,
+                    "reason": v.reason,
+                    "evidence_refs": list(v.evidence_refs),
+                    "diff": v.diff,
+                }
+                for v in self.store.self_history(limit=5)
+            ],
             "last_sleep": _jsonable(last_sleep) if last_sleep else None,
             "open_loops": _jsonable(self.store.open_loops(limit=20)),
             "alarms": _jsonable(self.store.pending_alarms(limit=20)),
