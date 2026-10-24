@@ -589,20 +589,32 @@ class GatewayService:
             self._end_wake()
             return None
         self.budget.record_completion(completion, kind="autonomous", now=now, user_facing=False)
-        text = (completion.text or "").strip()
-        self.store.append_event(
+        text, awareness = split_awareness_block((completion.text or "").strip())
+        display = text or "（自主醒来没有留下可显示的文本。）"
+        observation = self.store.append_event(
             "ai-observation",
             "observation",
-            text or "（自主醒来没有留下文字。）",
+            display,
             actor=self.config.name,
             meta={"reason": reason, "autonomous": True},
             ts=now.isoformat(timespec="microseconds"),
         )
-        self.window.transcript.append({"role": "assistant", "content": text})
-        self.last_reply = text
-        self._broadcast(text, meta={"kind": "autonomous", "reason": reason})
+        if awareness is not None:
+            refs = [wake_event.id, observation.id]
+            try:
+                create_card(self.store, {**awareness, "evidence_refs": refs})
+            except ValueError as exc:
+                self.store.append_event(
+                    "system",
+                    "note",
+                    f"自主醒来的觉察卡未记录：{exc}",
+                    meta={"trigger": awareness.get("trigger")},
+                )
+        self.window.transcript.append({"role": "assistant", "content": display})
+        self.last_reply = display
+        self._broadcast(display, meta={"kind": "autonomous", "reason": reason})
         self.sleep_window(reason=f"{reason}结束")
-        return text
+        return display
 
     # --------------------------------------------------------------------- sleep
     def sleep_window(self, *, reason: str = "清醒窗口结束") -> dict[str, Any] | None:

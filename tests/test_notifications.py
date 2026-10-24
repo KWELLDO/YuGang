@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from yugang.gateway.channels.base import NullChannel
 from yugang.gateway.service import GatewayService
 from yugang.runtime.mock import MockRuntime
@@ -41,3 +43,39 @@ def test_broadcast_records_a_missing_recipient_instead_of_dropping_it(cfg, store
     assert not channel.sent
     notes = [event for event in store.events(kind="note") if "没有可送达的通知目标" in event.content]
     assert notes
+
+
+def test_autonomous_wake_strips_awareness_and_records_it_with_real_refs(cfg, store):
+    channel = EmailLike()
+    cfg.email.allow_senders = ["owner@example.com"]
+    replies = [
+        '我先说时间缺口。\n<awareness trigger="T5">'
+        '{"observation":"我醒来先读的是当前视图。","hypothesis":"我会把当前视图当成历史证据。",'
+        '"falsifier":"如果我能先回 L1 核对再下结论，这条就站不住。","confidence":0.6}'
+        "</awareness>",
+        json.dumps({"diary": "这次自主醒来只读到当前视图，没有回 L1。"}, ensure_ascii=False),
+    ]
+    service = GatewayService(
+        cfg,
+        store,
+        MockRuntime(replies=replies),
+        channels=[channel],
+    )
+
+    text = service.autonomous_wake("测试闹钟")
+
+    assert text is not None
+    assert "<awareness" not in text
+    assert text == "我先说时间缺口。"
+    assert channel.sent[0][1] == text
+    observations = [
+        event for event in store.events(kind="observation")
+        if event.meta.get("autonomous")
+    ]
+    assert observations and "<awareness" not in observations[0].content
+    cards = store.awareness_cards(status="open", limit=10)
+    assert len(cards) == 1
+    assert cards[0].trigger == "T5"
+    assert len(cards[0].evidence_refs) == 2
+    assert all(store.ref_exists(ref) for ref in cards[0].evidence_refs)
+    assert observations[0].id in cards[0].evidence_refs

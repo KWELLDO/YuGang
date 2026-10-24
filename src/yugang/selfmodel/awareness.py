@@ -122,6 +122,11 @@ def split_awareness_block(text: str) -> tuple[str, dict[str, Any] | None]:
     raw = text or ""
     match = _AWARENESS_BLOCK.search(raw)
     if match is None:
+        # A reply can be cut off by the token limit before </awareness>. The
+        # protocol block is still internal and must not leak into L1 or email.
+        opener = re.search(r"<awareness\b[^>]*>.*$", raw, re.IGNORECASE | re.DOTALL)
+        if opener is not None:
+            return raw[: opener.start()].strip(), None
         return raw.strip(), None
     body = match.group("body").strip()
     start, end = body.find("{"), body.rfind("}")

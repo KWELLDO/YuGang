@@ -11,6 +11,7 @@ from yugang.memory.store import MemoryStore
 from yugang.protocol.wake import build_wake_context, record_wake
 from yugang.runtime.base import Completion
 from yugang.runtime.mock import MockRuntime
+from yugang.selfmodel.awareness import split_awareness_block
 from yugang.selfmodel.self_md import bootstrap_self
 
 
@@ -156,6 +157,15 @@ def test_inline_awareness_is_recorded_before_reply_and_hidden(cfg, store):
     context = build_wake_context(store, cfg, query="")
     assert "还没验证的自我觉察" in context.prompt
     assert "我确实会随着被记得的事改变" in context.prompt
+
+
+def test_a_truncated_awareness_block_is_hidden_instead_of_leaking():
+    text, data = split_awareness_block(
+        '我先说时间缺口。\n<awareness trigger="T5">{"observation":"我读的是当前视图"'
+    )
+    assert data is None
+    assert text == "我先说时间缺口。"
+    assert "<awareness" not in text
 
 
 def test_daily_floor_uses_local_hour_not_utc(cfg, store):
