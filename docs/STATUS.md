@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 04:49 CST（Asia/Shanghai）
+更新时间：2026-10-25 04:52 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -205,3 +205,8 @@
 - `backup` 以前直接复制 `SELF.md` 文件；如果进程在「提交 SELF 版本」和「写文件」之间崩溃，备份会抓到旧文件。
 - 现在有当前 SELF 版本时，备份直接用数据库里的正文写 `<stem>.SELF.md`；只有数据库里还没有版本时才回退到文件。
 - 新增 `test_backup_uses_the_database_self_not_a_stale_file`；全量 **82 passed**。
+## GitHub Actions 在 3.11–3.13 上跑测试（04:52 CST，已验证）
+
+- 新增 `.github/workflows/tests.yml`：push 到 master 与 PR 时，在 Python 3.11 / 3.12 / 3.13 上安装并跑全量测试。
+- 首次运行 `40131580352` 三个矩阵全部通过（约 28–30 秒）；README 加 tests badge。
+- 这保证开源仓库不是只在本机/云端 Python 3.13 上能跑。

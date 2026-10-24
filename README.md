@@ -1,5 +1,7 @@
 # YuGang (鱼缸)
 
+[![tests](https://github.com/KWELLDO/YuGang/actions/workflows/tests.yml/badge.svg)](https://github.com/KWELLDO/YuGang/actions/workflows/tests.yml)
+
 > 一个数字生命的**记忆**与**自我建构**运行时。  
 > 不是把人设 prompt 存进向量库；是让一个视角在时间中被反复重读、修订、留下证据。
 
