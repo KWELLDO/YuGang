@@ -219,6 +219,7 @@ class PracticeReview:
     practice_id: str
     ts: str
     status: str
+    evidence_refs: tuple[str, ...]
     note: str | None
     created_at: str
 
@@ -229,6 +230,7 @@ class PracticeReview:
             practice_id=row["practice_id"],
             ts=row["ts"],
             status=row["status"],
+            evidence_refs=tuple(_loads(row["evidence_refs"], [])),
             note=row["note"],
             created_at=row["created_at"],
         )

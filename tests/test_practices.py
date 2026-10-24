@@ -64,7 +64,11 @@ def test_sleep_records_only_evidence_backed_practices_and_drops_real_ones(store,
     result = SleepResult(
         diary="今天我发现先给结论会漏掉反例。",
         practices=[
-            {"text": "遇到不确定时先查当前 L2，再下结论。", "evidence_refs": [evidence.id]},
+            {
+                "text": "遇到不确定时先查当前 L2，再下结论。",
+                "evidence_refs": [evidence.id],
+                "note": "防错条款，不是已验证的好习惯",
+            },
             {"text": "只凭感觉写下的做法", "evidence_refs": ["evt_missing"]},
             {"text": "遇到不确定时先查当前 L2，再下结论。", "evidence_refs": [evidence.id]},
         ],
@@ -79,6 +83,7 @@ def test_sleep_records_only_evidence_backed_practices_and_drops_real_ones(store,
     active = store.practices(status="active")
     assert [p.text for p in active] == ["遇到不确定时先查当前 L2，再下结论。"]
     assert active[0].evidence_refs == (evidence.id,)
+    assert active[0].note == "防错条款，不是已验证的好习惯"
     assert store.get_practice(old.id).status == "dropped"
     assert [r.note for r in store.practice_reviews(old.id)] == ["它导致我先给结论"]
     assert old.id not in {p.id for p in active}
@@ -136,7 +141,9 @@ def test_parse_sleep_output_accepts_practices_and_only_drop_updates():
     }
     result = parse_sleep_output(json.dumps(payload, ensure_ascii=False))
     assert result.parsed is True
-    assert result.practices == [{"text": "先查 L1。", "evidence_refs": ["evt_1"]}]
+    assert result.practices == [
+        {"text": "先查 L1。", "evidence_refs": ["evt_1"], "note": None}
+    ]
     assert result.practice_updates == [
         {"practice_id": "practice_1", "status": "dropped", "note": "不再适用"}
     ]
@@ -149,4 +156,95 @@ def test_tank_exposes_active_practices(store, cfg):
     tank = service.tank()
     assert tank["practices"][0]["id"] == practice.id
     assert tank["practices"][0]["text"] == practice.text
-    assert tank["practice_stats"] == {"active": 1, "dropped": 0}
+    assert tank["practice_stats"] == {"active": 1, "dropped": 0, "checks": 0}
+    assert tank["practices"][0]["checks"] == []
+    assert tank["practices"][0]["last_check"] is None
+
+def test_practice_check_requires_evidence_after_the_practice(store, cfg):
+    early = store.append_event("human", "message", "这条早于做法。")
+    practice = store.add_practice("遇到不确定时先查 L1。", evidence_refs=[early.id])
+    later = store.append_event("ai-observation", "action", "这次我先查了 L1。")
+
+    with pytest.raises(ValueError):
+        store.review_practice(
+            practice.id, verdict="followed", evidence_refs=[early.id], note="旧证据"
+        )
+    with pytest.raises(ValueError):
+        store.review_practice(practice.id, verdict="followed", note="没有证据")
+    with pytest.raises(ValueError):
+        store.review_practice(
+            practice.id, verdict="followed", evidence_refs=["evt_missing"], note="假证据"
+        )
+
+    review = store.review_practice(
+        practice.id,
+        verdict="followed",
+        evidence_refs=[later.id],
+        note="这次真的先查了。",
+    )
+    assert review is not None
+    assert review.status == "followed"
+    assert review.evidence_refs == (later.id,)
+    context = build_wake_context(store, cfg, query="")
+    section = _section(context.prompt, "我给自己定的做法（自我协议，仍有效）")
+    assert "最近一次检查：followed" in section
+    assert "这次真的先查了" in section
+    action = store.latest_event()
+    assert action is not None and action.kind == "action"
+    assert "practice followed" in action.content
+
+
+def test_sleep_applies_one_valid_check_per_practice(store, cfg):
+    early = store.append_event("human", "message", "做法开始前。")
+    first = store.add_practice("做法一：先查 L1。", evidence_refs=[early.id])
+    second = store.add_practice("做法二：先给结论。", evidence_refs=[early.id])
+    third = store.add_practice("做法三：每天备份。", evidence_refs=[early.id])
+    later = store.append_event("ai-observation", "action", "做法开始后，我真的先查了 L1。")
+    result = SleepResult(
+        diary="今天检查做法。",
+        practice_checks=[
+            {"practice_id": first.id, "verdict": "followed", "evidence_refs": [later.id], "note": "先查了 L1"},
+            {"practice_id": first.id, "verdict": "untested", "evidence_refs": [], "note": "重复检查"},
+            {"practice_id": second.id, "verdict": "violated", "evidence_refs": [early.id], "note": "旧证据不算"},
+            {"practice_id": third.id, "verdict": "untested", "evidence_refs": [], "note": "今天没有备份情形"},
+            {"practice_id": "practice_missing", "verdict": "followed", "evidence_refs": [later.id], "note": "不存在"},
+        ],
+    )
+    applied = apply_sleep_result(store, cfg, result)
+    assert applied["practice_checks"] == 2
+    assert [r.status for r in store.practice_reviews(first.id)] == ["followed"]
+    assert store.practice_reviews(second.id) == []
+    assert [r.status for r in store.practice_reviews(third.id)] == ["untested"]
+
+
+def test_sleep_prompt_lists_the_last_check_and_check_schema(store, cfg):
+    evidence = store.append_event("human", "message", "把做法写下来")
+    practice = store.add_practice("先读记忆，再说自己是谁。", evidence_refs=[evidence.id])
+    later = store.append_event("ai-observation", "action", "这次先读了当前 L2。")
+    store.review_practice(
+        practice.id,
+        verdict="violated",
+        evidence_refs=[later.id],
+        note="这次仍然先给结论。",
+    )
+    prompt = build_sleep_messages(store, cfg, [])[-1]["content"]
+    assert "last_check=violated" in prompt
+    assert "## 我正在遵守的做法（自我协议）" in prompt
+    assert '"practice_checks"' in prompt
+
+
+def test_tank_exposes_the_last_practice_check(store, cfg):
+    evidence = store.append_event("human", "message", "测试做法检查")
+    practice = store.add_practice("醒来先读 SELF.md。", evidence_refs=[evidence.id])
+    later = store.append_event("ai-observation", "action", "先读了 SELF.md。")
+    store.review_practice(
+        practice.id,
+        verdict="followed",
+        evidence_refs=[later.id],
+        note="这次做到了。",
+    )
+    service = GatewayService(cfg, store, MockRuntime(responder=lambda messages, purpose: "我在。"))
+    tank = service.tank()
+    assert tank["practice_stats"]["checks"] == 1
+    assert tank["practices"][0]["last_check"]["status"] == "followed"
+    assert tank["practices"][0]["last_check"]["evidence_refs"] == [later.id]

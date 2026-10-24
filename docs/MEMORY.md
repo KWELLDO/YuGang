@@ -123,9 +123,24 @@ first do Y." It is procedural self-knowledge, not a belief and not a todo item. 
   in place or reactivated. A drop writes a `practice_reviews` row and an L1 `action` event,
   so the change of procedure stays auditable.
 
-The fish tank lists active practices and their original evidence, plus how many she has
-dropped. The goal is not to accumulate rules; it is to make the procedural part of her self
-explicit, testable, and retractable.
+A practice can be checked later, not just dropped. During any subsequent sleep she may
+emit `practice_checks` with one of three verdicts:
+
+- `followed`: an L1 event after the practice was written shows she actually did it;
+- `violated`: such an event shows she did not;
+- `untested`: no relevant situation occurred (no evidence ref is required, but the note must
+  say why it could not be tested).
+
+A check must cite real L1 events that happened *after* the practice was written; the current
+sleep diary is never accepted as the only evidence. At most one check per practice per sleep.
+Checks are evidence about the rule, not a rewrite of it: a check does not change the practice's
+status. She can keep a violated practice active and keep testing it, or drop it separately with
+a reason. The wake context shows the most recent check, so she cannot silently turn one success
+into a habit.
+
+The fish tank lists active practices, their original evidence, their latest check, and how many
+she has dropped. The goal is not to accumulate rules; it is to make the procedural part of her
+self explicit, testable, and retractable.
 
 ## Self-set wake alarms
 

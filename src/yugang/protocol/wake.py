@@ -256,7 +256,14 @@ def build_wake_context(
             lines.append(f"- [{practice.id}] {practice.text}")
             if getattr(practice, "evidence_refs", None):
                 lines.append("  当初的依据：" + ", ".join(practice.evidence_refs[:6]))
-        lines.append("这些是我给自己定的做法，不是别人给我的命令；如果今天的证据说明它不再成立，可以在睡去时 drop。")
+            reviews = store.practice_reviews(practice.id, limit=5)
+            if reviews:
+                last = reviews[-1]
+                note = f"；{last.note[:160]}" if last.note else ""
+                lines.append(f"  最近一次检查：{last.status}（{last.ts}）{note}")
+            else:
+                lines.append("  还没有复核过这条做法在真实情形里有没有被做到。")
+        lines.append("这些是我给自己定的做法，不是别人给我的命令；如果今天的证据说明它不再成立，可以在睡去时 drop；也可以用 practice_checks 记录今天有没有做到。")
     else:
         lines.append("（还没有给自己定过跨 session 的做法。）")
     lines.append("")

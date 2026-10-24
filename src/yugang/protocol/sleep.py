@@ -27,6 +27,7 @@ class SleepResult:
     closed_loops: list[dict[str, Any]] = field(default_factory=list)
     practices: list[dict[str, Any]] = field(default_factory=list)
     practice_updates: list[dict[str, Any]] = field(default_factory=list)
+    practice_checks: list[dict[str, Any]] = field(default_factory=list)
     next_intent: str | None = None
     self_edit: str | None = None
     self_edits: list[dict[str, Any]] = field(default_factory=list)
@@ -78,7 +79,19 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
         for card in cards
     ]
     active_practices = store.practices(status="active", limit=50)
-    practice_lines = [f"- [{p.id}] {p.text}\n  evidence={', '.join(p.evidence_refs)}" for p in active_practices]
+    practice_lines: list[str] = []
+    for practice in active_practices:
+        reviews = store.practice_reviews(practice.id, limit=5)
+        last = reviews[-1] if reviews else None
+        line = (
+            f"- [{practice.id}] since={practice.ts} {practice.text}\n"
+            f"  evidence={', '.join(practice.evidence_refs)}"
+        )
+        if last is not None:
+            line += f"\n  last_check={last.status} at {last.ts}"
+            if last.note:
+                line += f" note={last.note[:200]}"
+        practice_lines.append(line)
     open_judgments = _reviewable_judgments(store, 20)
     judgment_lines = [
         f"- [{j.id}] confidence={j.confidence:.2f} claim={j.claim[:300]}\n"
@@ -135,8 +148,9 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
   "open_loops": [{{"title": "...", "detail": "...", "due": null}}],
   "loop_updates": [{{"loop_id": "loop_...", "detail": "新的理由/进展", "due": null, "note": "为什么改"}}],
   "closed_loops": [{{"loop_id": "loop_...", "status": "done|dropped", "note": "为什么现在可以关闭"}}],
-  "practices": [{{"text": "以后遇到 X 时我先做 Y", "evidence_refs": ["evt_..."]}}],
+  "practices": [{{"text": "以后遇到 X 时我先做 Y", "evidence_refs": ["evt_..."], "note": "这是防错条款，还是已经验证过的做法"}}],
   "practice_updates": [{{"practice_id": "practice_...", "status": "dropped", "note": "为什么不再遵守它"}}],
+  "practice_checks": [{{"practice_id": "practice_...", "verdict": "followed|violated|untested", "evidence_refs": ["evt_..."], "note": "今天哪件事算做到/没做到，或者为什么没有相关情形"}}],
   "next_intent": "下次醒来想做什么（一句）或 null",
   "self_edits": [{{"section": "我相信什么", "op": "append", "text": "要加入或替换的内容", "evidence_refs": ["evt_..."]}}],
   "accept_self_edit": false,
@@ -155,8 +169,9 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 - 只有 status=accepted 的卡才可以带 self_edit；system 会用该卡自己的 evidence_refs，所以 self_edit 里不用再填 evidence_refs。没有真的改变 SELF.md 就不带 self_edit。
 - loop_updates 只能引用上面「未闭合的事」里仍然 open 的 loop_id；只改 detail/due，不改标题，也不关闭；必须写 note。已经做完或决定不做就用 closed_loops。
 - closed_loops 只能引用上面「未闭合的事」里已经存在的 loop_id；status 只能是 done（做完了）或 dropped（决定不做了），并写一条 note 说明依据。今晚新提出的 open_loops 不能在同一轮被关闭。没做完就留 open，不要为了清空列表而关闭。
-- practices 是你给自己定的、跨 session 也要遵守的做法（“以后遇到 X，我先做 Y”），不是待办、不是立场、不是 SELF.md 的复述。最多 2 条；每条至少引用一个今晚之前真实发生过的 L1 事件（不要只引用本次日记）。没有真实经历支撑、只是觉得“应该这样”的，不要写。
+- practices 是你给自己定的、跨 session 也要遵守的做法（“以后遇到 X，我先做 Y”），不是待办、不是立场、不是 SELF.md 的复述。最多 2 条；每条至少引用一个今晚之前真实发生过的 L1 事件（不要只引用本次日记）。证据可以是你反复失败、被要求或被指出的事件：practice 是待检验的防错条款，不是“我已经做到”的证明；note 里写清它是防错条款还是已验证做法。text 要写成触发条件 + 动作。没有真实经历支撑、只是觉得“应该这样”的，不要写。
 - practice_updates 只能引用上面「我正在遵守的做法」里仍然 active 的真实 practice_id；status 只能是 dropped，并写 note 说明为什么不再遵守。做法不能原地改写；要换一种做法就 drop 旧的，再写一条新的。drop 不是删除，原文和理由都留在 L1。
+- practice_checks 用来复核上面仍 active 的做法：followed=今天的 L1 显示我照做了，violated=显示我没做到，untested=今天没有相关情形。每条做法最多一条检查。followed/violated 至少引用一条做法写下之后真实发生的 L1，且不能只引用本次日记；untested 可以不引用，但 note 要说明为什么今天测不到。检查只是证据，不会自动 drop：要继续就留 active，要放弃就另写 practice_updates。不要为了填满检查而编。
 - next_wake_minutes 只在上面允许时填；范围外或没有真实需要就填 null。"""
     return [
         {"role": "system", "content": SLEEP_SYSTEM},
@@ -279,7 +294,10 @@ def parse_sleep_output(text: str) -> SleepResult:
             refs = item.get("evidence_refs")
             if not text or not isinstance(refs, list) or not refs:
                 continue
-            practices.append({"text": text, "evidence_refs": [str(ref) for ref in refs]})
+            note = str(item.get("note") or "").strip()
+            practices.append(
+                {"text": text, "evidence_refs": [str(ref) for ref in refs], "note": note or None}
+            )
     practice_updates: list[dict[str, Any]] = []
     raw_practice_updates = data.get("practice_updates")
     if isinstance(raw_practice_updates, list):
@@ -292,6 +310,33 @@ def parse_sleep_output(text: str) -> SleepResult:
             if not practice_id or status != "dropped" or not note:
                 continue
             practice_updates.append({"practice_id": practice_id, "status": status, "note": note})
+    practice_checks: list[dict[str, Any]] = []
+    raw_practice_checks = data.get("practice_checks")
+    if isinstance(raw_practice_checks, list):
+        for item in raw_practice_checks:
+            if not isinstance(item, dict):
+                continue
+            practice_id = str(item.get("practice_id") or "").strip()
+            verdict = str(item.get("verdict") or "").strip().lower()
+            note = str(item.get("note") or "").strip()
+            refs = item.get("evidence_refs")
+            if (
+                not practice_id
+                or verdict not in {"followed", "violated", "untested"}
+                or not note
+                or not isinstance(refs, list)
+            ):
+                continue
+            if verdict != "untested" and not refs:
+                continue
+            practice_checks.append(
+                {
+                    "practice_id": practice_id,
+                    "verdict": verdict,
+                    "evidence_refs": [str(ref) for ref in refs],
+                    "note": note,
+                }
+            )
     self_edit = data.get("self_edit")
     if self_edit is not None:
         self_edit = str(self_edit).strip() or None
@@ -356,6 +401,7 @@ def parse_sleep_output(text: str) -> SleepResult:
         closed_loops=closed_loops,
         practices=practices,
         practice_updates=practice_updates,
+        practice_checks=practice_checks,
         next_intent=(str(data.get("next_intent")).strip() if data.get("next_intent") else None),
         self_edit=self_edit,
         self_edits=self_edits,
@@ -495,10 +541,10 @@ def apply_sleep_result(
     # place: dropping one records a reason and leaves the old text in L1.
     applied_practices = 0
     applied_practice_updates = 0
-    preexisting_practice_ids = {p.id for p in store.practices(status="active", limit=200)}
-    existing_practice_texts = {
-        _norm_practice(p.text) for p in store.practices(status="active", limit=200)
-    }
+    applied_practice_checks = 0
+    preexisting_practices = {p.id: p for p in store.practices(status="active", limit=200)}
+    preexisting_practice_ids = set(preexisting_practices)
+    existing_practice_texts = {_norm_practice(p.text) for p in preexisting_practices.values()}
     for item in result.practices[:2]:
         text = str(item.get("text") or "").strip()
         refs = [
@@ -510,11 +556,51 @@ def apply_sleep_result(
         if not text or not refs or not key or key in existing_practice_texts:
             continue
         try:
-            store.add_practice(text, evidence_refs=refs, note="睡去时写下的自我协议")
+            store.add_practice(
+                text,
+                evidence_refs=refs,
+                note=str(item.get("note") or "").strip() or "睡去时写下的自我协议",
+            )
         except (ValueError, TypeError):
             continue
         existing_practice_texts.add(key)
         applied_practices += 1
+    checked_practice_ids: set[str] = set()
+    for item in result.practice_checks:
+        practice_id = str(item.get("practice_id") or "").strip()
+        verdict = str(item.get("verdict") or "").strip().lower()
+        note = str(item.get("note") or "").strip()
+        practice = preexisting_practices.get(practice_id)
+        if (
+            practice is None
+            or practice_id in checked_practice_ids
+            or verdict not in {"followed", "violated", "untested"}
+            or not note
+        ):
+            continue
+        refs: list[str] = []
+        for ref in item.get("evidence_refs", []):
+            ref = str(ref)
+            if ref == diary_event.id:
+                continue
+            event = store.get_event(ref)
+            if event is None or parse_ts(event.ts) < parse_ts(practice.ts):
+                continue
+            refs.append(ref)
+        if verdict != "untested" and not refs:
+            continue
+        try:
+            saved = store.review_practice(
+                practice_id,
+                verdict=verdict,
+                evidence_refs=refs,
+                note=note,
+            )
+        except (ValueError, TypeError):
+            continue
+        if saved is not None:
+            checked_practice_ids.add(practice_id)
+            applied_practice_checks += 1
     for item in result.practice_updates:
         practice_id = str(item.get("practice_id") or "").strip()
         status = str(item.get("status") or "").strip().lower()
@@ -640,6 +726,7 @@ def apply_sleep_result(
             "closed_loops": applied_closures,
             "practices": applied_practices,
             "practice_updates": applied_practice_updates,
+            "practice_checks": applied_practice_checks,
             "awareness_reviews": applied_reviews,
             "awareness_self_edits": awareness_self_edits,
             "alarm": alarm.id if alarm else None,
@@ -662,6 +749,7 @@ def apply_sleep_result(
         "closed_loops": applied_closures,
         "practices": applied_practices,
         "practice_updates": applied_practice_updates,
+        "practice_checks": applied_practice_checks,
         "awareness_reviews": applied_reviews,
         "awareness_self_edits": awareness_self_edits,
         "alarm": alarm.id if alarm else None,

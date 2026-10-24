@@ -898,6 +898,19 @@ class GatewayService:
         ]
         active_practices = self.store.practices(status="active", limit=50)
         dropped_practices = self.store.practices(status="dropped", limit=200)
+        practice_rows = []
+        check_count = 0
+        for practice in active_practices:
+            reviews = self.store.practice_reviews(practice.id, limit=5)
+            check_count += len(reviews)
+            serialized = _jsonable(reviews)
+            practice_rows.append(
+                {
+                    **_jsonable(practice),
+                    "checks": serialized,
+                    "last_check": serialized[-1] if serialized else None,
+                }
+            )
         return {
             "name": self.config.name,
             "status": self.status(),
@@ -917,10 +930,11 @@ class GatewayService:
             "open_loops": _jsonable(self.store.open_loops(limit=20)),
             "alarms": _jsonable(self.store.pending_alarms(limit=20)),
             "awareness": cards,
-            "practices": _jsonable(active_practices),
+            "practices": practice_rows,
             "practice_stats": {
                 "active": len(active_practices),
                 "dropped": len(dropped_practices),
+                "checks": check_count,
             },
             "recent_events": _jsonable(self.store.events(limit=30)),
             "judgments": judgments,

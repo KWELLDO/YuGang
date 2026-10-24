@@ -240,7 +240,10 @@ function renderPractices(practices, stats) {
   const box = $('practices'); box.replaceChildren();
   const rows = (practices || []).slice(0, 8);
   const dropped = (stats && stats.dropped) || 0;
-  $('practice-count').textContent = rows.length ? rows.length + ' 条仍有效' + (dropped ? '（已废弃 ' + dropped + ' 条）' : '') : '';
+  const checks = (stats && stats.checks) || 0;
+  $('practice-count').textContent = rows.length
+    ? rows.length + ' 条仍有效' + (checks ? '，已检查 ' + checks + ' 次' : '') + (dropped ? '（已废弃 ' + dropped + ' 条）' : '')
+    : '';
   if (!rows.length) { box.append(el('div','muted','她还没有给自己定过跨 session 的做法。')); return; }
   for (const p of rows) {
     const d = el('div','item');
@@ -248,6 +251,13 @@ function renderPractices(practices, stats) {
     const meta = el('div','meta');
     meta.append(document.createTextNode('从 ' + fmt(p.ts) + ' 起 · 当初依据 ' + ((p.evidence_refs || []).length) + ' 条'));
     d.append(meta);
+    if (p.last_check) {
+      const labels = { followed: '做到了', violated: '没做到', untested: '今天没有相关情形' };
+      const c = p.last_check;
+      const cm = el('div','meta');
+      cm.append(document.createTextNode('最近检查：' + (labels[c.status] || c.status) + ' · ' + fmt(c.ts) + (c.note ? ' · ' + String(c.note).slice(0,160) : '')));
+      d.append(cm);
+    }
     box.append(d);
   }
 }

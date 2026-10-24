@@ -910,9 +910,9 @@ class MemoryStore:
             (note, when, practice_id),
         )
         self.conn.execute(
-            "INSERT INTO practice_reviews(id, practice_id, ts, status, note, created_at) "
-            "VALUES (?, ?, ?, 'dropped', ?, ?)",
-            (new_id("preview"), practice_id, when, note, now_iso()),
+            "INSERT INTO practice_reviews(id, practice_id, ts, status, evidence_refs, note, created_at) "
+            "VALUES (?, ?, ?, 'dropped', ?, ?, ?)",
+            (new_id("preview"), practice_id, when, row["evidence_refs"], note, now_iso()),
         )
         self.append_event(
             "ai-observation",
@@ -923,6 +923,57 @@ class MemoryStore:
             ts=when,
         )
         return True
+
+    def review_practice(
+        self,
+        practice_id: str,
+        *,
+        verdict: str,
+        evidence_refs: Iterable[str] = (),
+        note: str | None = None,
+        ts: str | None = None,
+    ) -> PracticeReview | None:
+        """Record whether a practice was followed, violated, or not exercised.
+
+        A check is evidence about the rule, not a rewrite of it: the practice
+        stays active until she explicitly drops it. Refs must predate the
+        practice's own timestamp, so a rule cannot be retroactively justified
+        by events from after it was written.
+        """
+        if verdict not in {"followed", "violated", "untested"}:
+            raise ValueError(f"unknown practice verdict: {verdict}")
+        row = self.conn.execute("SELECT * FROM practices WHERE id = ?", (practice_id,)).fetchone()
+        if not row or row["status"] != "active":
+            return None
+        refs = list(dict.fromkeys(str(ref) for ref in evidence_refs if str(ref).strip()))
+        for ref in refs:
+            event = self.get_event(ref)
+            if event is None:
+                raise ValueError(f"unknown practice check evidence ref: {ref}")
+            if parse_ts(event.ts) < parse_ts(row["ts"]):
+                raise ValueError(f"practice check evidence predates the practice: {ref}")
+        if verdict != "untested" and not refs:
+            raise ValueError(f"a {verdict} practice check requires evidence refs")
+        when = ts or now_iso()
+        review_id = new_id("preview")
+        self.conn.execute(
+            "INSERT INTO practice_reviews(id, practice_id, ts, status, evidence_refs, note, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (review_id, practice_id, when, verdict, canonical_json(refs), note, now_iso()),
+        )
+        source_ref = row["source_event"] or practice_id
+        self.append_event(
+            "ai-observation",
+            "action",
+            f"practice {verdict}: {str(row['text'])[:120]}",
+            meta={"practice_id": practice_id, "status": verdict, "note": note},
+            refs=refs or [source_ref],
+            ts=when,
+        )
+        saved = self.conn.execute(
+            "SELECT * FROM practice_reviews WHERE id = ?", (review_id,)
+        ).fetchone()
+        return PracticeReview.from_row(saved)
 
     def practice_reviews(self, practice_id: str, *, limit: int = 50) -> list[PracticeReview]:
         rows = self.conn.execute(

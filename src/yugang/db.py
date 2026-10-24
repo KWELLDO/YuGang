@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 3  # v2 judgment lineage, v3 self-practices (both additive)
+SCHEMA_VERSION = 4  # v2 judgment lineage, v3 practices, v4 practice checks
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS practice_reviews (
   practice_id TEXT NOT NULL,
   ts TEXT NOT NULL,
   status TEXT NOT NULL,
+  evidence_refs TEXT NOT NULL DEFAULT '[]',
   note TEXT,
   created_at TEXT NOT NULL,
   FOREIGN KEY (practice_id) REFERENCES practices(id)
@@ -283,8 +284,18 @@ def _create_fts(conn: sqlite3.Connection) -> str | None:
     return None
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Additive migrations for databases created before the current schema."""
+    review_cols = {row[1] for row in conn.execute("PRAGMA table_info(practice_reviews)")}
+    if "evidence_refs" not in review_cols:
+        conn.execute(
+            "ALTER TABLE practice_reviews ADD COLUMN evidence_refs TEXT NOT NULL DEFAULT '[]'"
+        )
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _migrate(conn)
     tokenizer = _create_fts(conn)
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?) "
