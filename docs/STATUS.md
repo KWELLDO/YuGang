@@ -229,8 +229,9 @@
 - 回信按 `max_message_chars` 分片，失败返回 False，由 `_finalize` 写 `system/error`，不会静默丢回复。
 - 新增 8 个测试：事件解析、分片、secret fail-closed、坏 secret/未授权用户/群消息/自己消息、API 鉴权与长文本分片、webhook→L1→回复→OneBot API 的端到端、配置加载。全量 **92 passed**。
 - 尚未在云端启用：需要一个专用 QQ 号登录 NapCat 并扫码授权；代码与文档已就绪，NapCat 配置见 `docs/DEPLOY.md`。
-### 鱼缸页显示 L3 与记忆链状态（05:26 CST，代码完成，待部署）
+### 鱼缸页显示 L3 与记忆链状态（05:26 CST，已部署）
 
 - `tank()` 新增 `stance`（当前 L3 立场，含时间、内容、依据的 L1 id、trigger）；鱼缸页新增「她现在的立场」，显示最近一次睡去重算出的薄层，不再只能从 SELF.md 或对话里猜。
 - `status()` 新增 `chain: {ok, bad_event}`：每次查询都跑 `verify_chain()`，L1 哈希链断裂时 `/status` 直接显示 `ok=false` 和第一个坏事件 id；不缓存，避免用事件数量掩盖同数量的内容篡改。
-- 更新 `test_tank_includes_judgment_and_card_status`（断言 stance 与 chain）与鱼缸页 HTML 测试（断言 `id="stance"`）；全量仍 **92 passed**，页面 JS 通过 `node --check`。
+- 更新 `test_tank_includes_judgment_and_card_status`（断言 stance 与 chain）与鱼缸页 HTML 测试（断言 `id="stance"`）；新增 `test_tank_reports_a_broken_l1_chain`（直接插入一条 prev_hash 错误的事件，断言 `chain.ok=false` 且 `bad_event` 指向它）；全量 **92 passed**，页面 JS 通过 `node --check`。
+- 云端验证（05:27 CST）：`/status` 返回 `chain: {"ok": true, "bad_event": null}`；`/tank` 返回当前立场 `stance_20261024T210736945471_d8bcd5`（45 字）；鱼缸页 HTML 含「她现在的立场」；服务 active、awake=false。
