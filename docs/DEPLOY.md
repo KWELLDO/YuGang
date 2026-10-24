@@ -262,10 +262,34 @@ sudo systemctl status yugang-backup.service --no-pager
 ls -lh /home/dafeiyu/.yugang/backups/
 ```
 
-To restore, stop the gateway first, replace `/home/dafeiyu/.yugang/yugang.db` with the
-snapshot (and `SELF.md` if needed), `chown dafeiyu:dafeiyu`, then start the gateway and check
-`/health` (including `degraded` and per-channel `channels` state), `/status`, and the hash chain with `yugang verify` (or the latest backup
-manifest's `chain_ok`). Backups contain her memories; keep the directory private.
+To restore, stop the gateway first. The CLI verifies the backup before it writes anything:
+
+```bash
+sudo systemctl stop yugang.service
+sudo -u dafeiyu env PYTHONPATH=/home/dafeiyu/yugang/src \
+  /usr/bin/python3 -m yugang --home /home/dafeiyu/.yugang \
+  restore --from /home/dafeiyu/.yugang/backups/<stamp>.db --dry-run
+sudo -u dafeiyu env PYTHONPATH=/home/dafeiyu/yugang/src \
+  /usr/bin/python3 -m yugang --home /home/dafeiyu/.yugang \
+  restore --from /home/dafeiyu/.yugang/backups/<stamp>.db --force
+sudo systemctl start yugang.service
+```
+
+`restore` checks the manifest sha256, event count, SQLite `integrity_check`, and the L1 hash
+chain. Without `--force` it refuses to overwrite an existing body. With `--force` it first
+snapshots the current body under `backups/`, swaps the db atomically, writes SELF.md from the
+restored database, appends one `system/note` recording the restore, and verifies the chain
+again; a failure rolls back to the pre-restore snapshot. Run a drill into a **fresh** home
+before trusting a backup:
+
+```bash
+sudo -u dafeiyu env PYTHONPATH=/home/dafeiyu/yugang/src \
+  /usr/bin/python3 -m yugang --home /home/dafeiyu/.yugang-restore-drill \
+  restore --from /home/dafeiyu/.yugang/backups/<stamp>.db --dry-run
+```
+
+Then run it without `--dry-run` and check the reported `events_after_note`, `chain_ok`, and
+`self_version_after`. Backups contain her memories; keep the directory private.
 
 To consolidate historical awareness cards that say almost the same thing:
 

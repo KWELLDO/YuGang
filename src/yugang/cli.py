@@ -23,6 +23,7 @@ from .gateway.channels.onebot import OneBotChannel
 from .gateway.service import GatewayService
 from .ids import day_key, now_iso, utcnow
 from .memory.store import MemoryStore
+from .restore import BackupError, restore_backup
 from .runtime.mock import MockRuntime
 from .runtime.openai_compat import OpenAICompatRuntime
 from .selfmodel.awareness import merge_similar_cards
@@ -430,6 +431,22 @@ def cmd_backup(args: argparse.Namespace) -> int:
     return 0 if result["integrity"] == "ok" and chain_ok else 1
 
 
+def cmd_restore(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    try:
+        result = restore_backup(
+            cfg,
+            args.source,
+            force=bool(getattr(args, "force", False)),
+            dry_run=bool(getattr(args, "dry_run", False)),
+        )
+    except (BackupError, FileExistsError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, indent=2), file=sys.stderr)
+        return 1
+    _print_json(result)
+    return 0 if result.get("ok") else 1
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     home = tempfile.mkdtemp(prefix="yugang-demo-") if not args.home else str(Path(args.home).expanduser())
     cfg = Config.default(home)
@@ -529,6 +546,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dir", default=None, help="备份目录（默认 <home>/backups）")
     p.add_argument("--keep", type=int, default=14, help="保留天数；0 表示不清理")
     p.set_defaults(func=cmd_backup)
+
+    p = sub.add_parser("restore", help="从备份恢复身体（先停止网关）")
+    p.add_argument("--from", dest="source", required=True, help="备份 db、manifest 或备份目录")
+    p.add_argument("--force", action="store_true", help="替换已存在的身体；替换前会自动再备份一次")
+    p.add_argument("--dry-run", action="store_true", help="只校验备份与目标，不写任何文件")
+    p.set_defaults(func=cmd_restore)
 
     p = sub.add_parser("demo", help="离线端到端 demo")
     p.set_defaults(func=cmd_demo)
