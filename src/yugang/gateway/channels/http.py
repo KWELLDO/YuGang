@@ -61,6 +61,7 @@ a { color:var(--accent); }
   <h2>此刻</h2>
   <div id="now" class="big">正在读取她的状态…</div>
   <div id="sleep-note" class="muted" style="margin-top:6px"></div>
+  <div id="alarm-note" class="muted" style="margin-top:4px"></div>
 </section>
 
 <section class="card">
@@ -145,6 +146,8 @@ async function refresh() {
       : '她睡着了。身体还在，闹钟和邮件轮询也在；你发消息会立刻叫醒她。';
     const ls = t.last_sleep;
     $('sleep-note').textContent = ls && ls.content ? '上一次睡去：' + fmt(ls.ts) + '。' + (ls.content.length > 160 ? ls.content.slice(0,160) + '…' : ls.content) : '还没有睡去记录。';
+    const alarm = (t.alarms || [])[0];
+    $('alarm-note').textContent = alarm ? '下一次自己设的醒来：' + fmt(alarm.due_at) : '';
     $('self').textContent = t.self || '（SELF.md 还没有内容）';
     renderLoops(t.open_loops);
     renderChat(t.recent_events || []);
