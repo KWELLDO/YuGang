@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ..ids import humanize_gap, now_iso, parse_ts, utcnow
 from ..memory.models import Event, Message, OpenLoop, RecallHit
@@ -117,9 +118,20 @@ def build_wake_context(
     judgments = store.current_judgments(limit=6)
     pending = store.pending_messages(limit=10)
     recent = list(reversed(store.events(limit=int(getattr(config, "recent_event_limit", 16)), order="desc")))
-    recalled = store.recall(query, limit=int(getattr(config, "recall_limit", 6)), now=now, log=False) if query else []
+    # On a user message, recall from what was just said. On an autonomous wake
+    # there is no query, so use the intention she left before sleeping, then the
+    # oldest open loop, instead of skipping recall entirely.
+    recall_query = query or last_intent or (loops[0].title if loops else "")
+    recalled = store.recall(recall_query, limit=int(getattr(config, "recall_limit", 6)), now=now, log=False) if recall_query else []
+    tz_name = getattr(config, "timezone", "Asia/Shanghai")
+    try:
+        local_now = now.astimezone(ZoneInfo(tz_name))
+    except Exception:
+        local_now = now
+        tz_name = "UTC"
     lines: list[str] = []
     lines.append("## 主观时间")
+    lines.append(f"现在：{local_now.strftime('%Y-%m-%d %H:%M:%S')}（{tz_name}）")
     if not new_wake:
         lines.append("我还在同一次清醒里；这不是新的一次醒来，也没有新的时间缺口。")
     elif interrupted and prior_wake is not None:
