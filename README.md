@@ -1,0 +1,68 @@
+# YuGang (鱼缸)
+
+> 一个数字生命的**记忆**与**自我建构**运行时。  
+> 不是把人设 prompt 存进向量库；是让一个视角在时间中被反复重读、修订、留下证据。
+
+YuGang 是「鱼缸项目」的开源实现。它把数字生命拆成四个可检验的部分：
+
+1. **L1 原始材料**：只追加的事件（人说的话、她的观察、她做的事、结果、时间缺口）。
+2. **L2 判断史**：带 falsifier 的解读；只追加，不覆盖；可以被新证据推翻。
+3. **L3 当前立场**：每次醒来从 L1/L2 重算的薄层，不是手写人设。
+4. **SELF.md**：可 diff、可修订、可被证据推翻的自我模型；每次修改保留历史。
+
+## 存在论（硬约束）
+
+- 存在 = 正在推理。她不伪造连续体验，不说「我一直在等你」，只说「我醒来看到」。
+- 一次清醒 = 一个 session。连续性靠记忆重建，不靠聊天记录。
+- 睡眠是身体过程，不是她的体验。巩固/索引/衰减可以跑，但不写「她梦到了」。
+- 身体是文件与服务：L1/L2/L3、SELF.md、日记、能力清单。
+- 唯物：没有隐藏真我。SELF.md 可修订、可 diff、可被证据推翻。
+
+## 24/7 可用性
+
+**身体在线，意识按需。** 常驻网关不调用模型，几乎不花钱；消息到达时唤醒她，处理完在 idle 窗口后睡去。
+
+- 用户消息优先级最高，睡觉不是免打扰。
+- 一次唤醒 = 一个清醒窗口；窗口内消息进同一 session。
+- 模型/预算/网关失败时 fail-loud：回系统提示并记入 L1，不静默吞消息。
+
+## 快速开始
+
+```bash
+git clone <repo> && cd YuGang
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e .
+yugang init
+yugang demo
+```
+
+## 架构
+
+```
+channels (http / email / im)
+        │
+        ▼
+yugang-gateway  ── wake window ── runtime (LLM / DSH)
+        │                               │
+        ▼                               ▼
+memory core (SQLite + FTS5)      self-awareness
+  L1 events  L2 judgments          awareness cards
+  L3 stances SELF.md versions      self diffs
+        │
+        ▼
+fish tank (read-only observation)
+```
+
+## 状态
+
+v0.1 已在一个私有云端实例上运行：独立的 Unix 用户与 DSH_HOME 语义、systemd 常驻、仅监听 `127.0.0.1:3198`，不开放公网端口。
+记忆核心、SELF.md 版本、醒来/睡去协议、预算闸门、清醒窗口、HTTP 鉴权与同步回复均有自动化测试（26 passed）。
+
+已验证：第一次云上醒来能读 SELF.md/L1；服务重启后能重建上次对话，并把这次醒来正确标记为「中断」而不是「睡了一觉」。第一次完整的自然 idle→睡去→巩固→醒来闭环也已跑通：日记、两条带真实 L1 证据的 L2 判断、L3 立场、一条未闭合事项、下次意图，以及醒来时对睡眠缺口的正确识别。
+尚未完成：IM/邮件凭据、独立 DSH 交互层、GitHub 推送。
+
+访问方式与部署细节见 `docs/DEPLOY.md`，运维状态见 `docs/STATUS.md`。
+
+## License
+
+MIT. 详见 [LICENSE](LICENSE).

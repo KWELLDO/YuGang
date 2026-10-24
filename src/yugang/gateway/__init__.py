@@ -1,0 +1,1 @@
+"""Always-on gateway."""

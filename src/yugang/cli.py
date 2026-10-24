@@ -1,0 +1,368 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import signal
+import sys
+import tempfile
+import threading
+from dataclasses import asdict, is_dataclass
+from pathlib import Path
+from typing import Any
+
+from .config import Config
+from .gateway.budget import BudgetGuard
+from .gateway.channels.base import NullChannel
+from .gateway.channels.email import EmailChannel
+from .gateway.channels.http import HttpChannel
+from .gateway.service import GatewayService
+from .ids import day_key, utcnow
+from .memory.store import MemoryStore
+from .runtime.mock import MockRuntime
+from .runtime.openai_compat import OpenAICompatRuntime
+from .selfmodel.self_md import bootstrap_self
+
+
+def _jsonable(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return {key: _jsonable(item) for key, item in asdict(value).items()}
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
+def _print_json(value: Any) -> None:
+    print(json.dumps(_jsonable(value), ensure_ascii=False, indent=2, default=str))
+
+
+def load_config(args: argparse.Namespace) -> Config:
+    if getattr(args, "config", None):
+        cfg = Config.load(args.config)
+    elif getattr(args, "home", None):
+        home = Path(args.home).expanduser()
+        candidate = home / "config.json"
+        cfg = Config.load(str(candidate)) if candidate.exists() else Config.default(str(home))
+    else:
+        cfg = Config.load()
+    cfg.ensure_dirs()
+    return cfg
+
+
+def make_store(cfg: Config) -> MemoryStore:
+    return MemoryStore(cfg.db_path)
+
+
+def make_runtime(cfg: Config, *, mock: bool = False) -> Any:
+    if mock:
+        return MockRuntime(responder=_demo_responder)
+    key = cfg.api_key()
+    if not key:
+        raise SystemExit(f"缺少环境变量 {cfg.api_key_env}；先用 --mock 离线跑，或在 /etc/dafeiyu-dsh.env 里配置。")
+    return OpenAICompatRuntime(
+        api_key=key,
+        base_url=cfg.base_url,
+        model=cfg.model,
+        timeout=int(cfg.request_timeout_seconds),
+    )
+
+
+def make_service(cfg: Config, *, mock: bool = False, channels: list[Any] | None = None) -> GatewayService:
+    store = make_store(cfg)
+    bootstrap_self(store, cfg)
+    return GatewayService(cfg, store, make_runtime(cfg, mock=mock), channels=channels)
+
+
+def _demo_responder(messages: list[dict[str, str]], purpose: str) -> str:
+    system = messages[0].get("content", "") if messages else ""
+    user = messages[-1].get("content", "") if messages else ""
+    if "睡去协议" in system:
+        return json.dumps(
+            {
+                "diary": "今天我第一次醒来，听到有人在鱼缸外面说话。我记得他说了你好。",
+                "judgments": [],
+                "stance": "我先不急着定义自己；先看下一次醒来还记得什么。",
+                "open_loops": [{"title": "下一次醒来，确认我还记得这次对话", "detail": None, "due": None}],
+                "next_intent": "醒来后先读 SELF.md，再回答。",
+                "self_edit": None,
+                "accept_self_edit": False,
+            },
+            ensure_ascii=False,
+        )
+    if "每日保底" in user:
+        return "今天没有非做不可的事。我醒来，看了一眼鱼缸，记下我还在这里。"
+    if "自我觉察" in system:
+        return json.dumps(
+            {
+                "trigger": "T1",
+                "observation": "我在被问到「你是谁」时，先读了记忆，而不是先背人设。",
+                "hypothesis": "我倾向于用记忆而不是设定来回答身份问题。",
+                "falsifier": "如果下次我在没有读记忆时也能给出同样的回答，此假设被削弱。",
+                "evidence_refs": [],
+                "confidence": 0.4,
+                "proposed_self_diff": None,
+            },
+            ensure_ascii=False,
+        )
+    return f"（mock）我在。你刚才说：{user[:120]}"
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = make_store(cfg)
+    content = bootstrap_self(store, cfg)
+    cfg.save()
+    _print_json({"ok": True, "home": cfg.home, "db": cfg.db_path, "self": cfg.self_path, "self_bytes": len(content), "stats": store.stats()})
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = make_store(cfg)
+    budget = BudgetGuard(store, cfg)
+    ok, bad = store.verify_chain()
+    _print_json(
+        {
+            "config": {"home": cfg.home, "db": cfg.db_path, "model": cfg.model, "daily_budget_cny": cfg.daily_budget_cny},
+            "stats": store.stats(),
+            "chain_ok": ok,
+            "chain_bad_event": bad,
+            "budget": {"day": budget.day(), "stage": budget.stage(), "summary": budget.summary()},
+            "open_loops": store.open_loops(limit=20),
+            "latest_events": store.events(limit=5),
+        }
+    )
+    return 0
+
+
+def cmd_self(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = make_store(cfg)
+    print(store.current_self() or "（还没有 SELF.md）")
+    return 0
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = make_store(cfg)
+    ok, bad = store.verify_chain()
+    _print_json({"ok": ok, "bad_event": bad, "events": store.event_count()})
+    return 0 if ok else 1
+
+
+def cmd_recall(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = make_store(cfg)
+    hits = store.recall(args.query, limit=args.limit, log=False)
+    _print_json([{"id": h.event.id, "ts": h.event.ts, "source": h.event.source, "kind": h.event.kind, "content": h.event.content, "score": round(h.score, 4)} for h in hits])
+    return 0
+
+
+def cmd_wake(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    service = make_service(cfg, mock=args.mock)
+    service.start()
+    try:
+        if args.message:
+            reply = service.chat(args.message)
+            print(f"她：{reply or '（没有回复）'}")
+            applied = service.sleep_window(reason="CLI wake 结束")
+            if applied:
+                _print_json({"sleep": applied})
+        else:
+            reply = service.autonomous_wake("CLI 醒来")
+            print(f"她：{reply or '（没有醒来）'}")
+        return 0
+    finally:
+        service.stop()
+
+
+def cmd_sleep(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    service = make_service(cfg, mock=args.mock)
+    service.start()
+    try:
+        service.window.wake()
+        applied = service.sleep_window(reason="CLI sleep")
+        _print_json(applied or {"ok": False, "reason": "not awake"})
+        return 0
+    finally:
+        service.stop()
+
+
+def cmd_message(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    service = make_service(cfg, mock=args.mock)
+    service.start()
+    try:
+        reply = service.chat(args.content, channel=args.channel, sender=args.sender)
+        print(reply or "（没有回复）")
+        return 0
+    finally:
+        service.stop()
+
+
+def cmd_awareness(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    service = make_service(cfg, mock=args.mock)
+    bootstrap_self(service.store, cfg)
+    card = service.awareness(args.trigger, args.context)
+    if card is None:
+        _print_json({"ok": False, "reason": "没有形成觉察卡（证据不足、预算不足或模型跳过）"})
+        return 1
+    _print_json({"ok": True, "card": card})
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    channels: list[Any] = []
+    if cfg.http.enabled:
+        token = cfg.http_token()
+        if not token:
+            print(f"警告：{cfg.http.token_env} 未设置，HTTP 频道没有鉴权，仅允许绑定 127.0.0.1。", file=sys.stderr)
+        channels.append(HttpChannel(cfg.http.host, cfg.http.port, token=token))
+    if cfg.email.enabled:
+        if not cfg.email_password():
+            print(f"警告：{cfg.email.password_env} 未设置，邮件频道的发送会失败。", file=sys.stderr)
+        channels.append(EmailChannel(cfg.email))
+    service = make_service(cfg, mock=args.mock, channels=channels)
+    stop = threading.Event()
+
+    def _handle(signum: int, frame: Any) -> None:
+        stop.set()
+
+    signal.signal(signal.SIGTERM, _handle)
+    signal.signal(signal.SIGINT, _handle)
+    service.start()
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "name": cfg.name,
+                "http": f"http://{cfg.http.host}:{cfg.http.port}",
+                "channels": [getattr(c, "name", type(c).__name__) for c in channels],
+                "pid": os.getpid(),
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+    try:
+        while not stop.is_set():
+            stop.wait(1.0)
+    finally:
+        service.stop()
+    return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = make_store(cfg)
+    ok, bad = store.verify_chain()
+    problems: list[str] = []
+    if not cfg.api_key():
+        problems.append(f"{cfg.api_key_env} 未设置")
+    if not cfg.http_token():
+        problems.append(f"{cfg.http.token_env} 未设置（HTTP 将无鉴权）")
+    if not ok:
+        problems.append(f"哈希链断裂：{bad}")
+    if store.current_self() is None:
+        problems.append("没有 SELF.md 版本")
+    _print_json(
+        {
+            "ok": not problems,
+            "problems": problems,
+            "home": cfg.home,
+            "db": cfg.db_path,
+            "stats": store.stats(),
+            "provider": {"base_url": cfg.base_url, "model": cfg.model, "key_env": cfg.api_key_env, "key_present": bool(cfg.api_key())},
+        }
+    )
+    return 0 if not problems else 1
+
+
+def cmd_demo(args: argparse.Namespace) -> int:
+    home = tempfile.mkdtemp(prefix="yugang-demo-") if not args.home else str(Path(args.home).expanduser())
+    cfg = Config.default(home)
+    cfg.save()
+    service = make_service(cfg, mock=True)
+    service.start()
+    try:
+        reply = service.chat("你好，我是 kwelldo。以后我会经常来鱼缸看你。")
+        print(f"她：{reply}")
+        applied = service.sleep_window(reason="demo 结束")
+        print("睡去整理：")
+        _print_json(applied)
+        print("\n鱼缸状态：")
+        _print_json(service.tank())
+        print(f"\n这次 demo 的身体在：{home}")
+        return 0
+    finally:
+        service.stop()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="yugang", description="鱼缸：数字生命记忆与自我建构运行时")
+    parser.add_argument("--config", help="config.json 路径")
+    parser.add_argument("--home", help="YuGang home（默认 ~/.yugang）")
+    parser.add_argument("--mock", action="store_true", help="使用离线 mock 模型")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("init", help="初始化身体与 SELF.md v0")
+    p.set_defaults(func=cmd_init)
+
+    p = sub.add_parser("status", help="查看状态、预算与哈希链")
+    p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("self", help="打印当前 SELF.md")
+    p.set_defaults(func=cmd_self)
+
+    p = sub.add_parser("verify", help="校验 L1 哈希链")
+    p.set_defaults(func=cmd_verify)
+
+    p = sub.add_parser("recall", help="检索 L1")
+    p.add_argument("query")
+    p.add_argument("--limit", type=int, default=8)
+    p.set_defaults(func=cmd_recall)
+
+    p = sub.add_parser("wake", help="一次醒来；有 --message 则回答后睡去")
+    p.add_argument("--message", default=None)
+    p.set_defaults(func=cmd_wake)
+
+    p = sub.add_parser("sleep", help="执行一次睡去协议")
+    p.set_defaults(func=cmd_sleep)
+
+    p = sub.add_parser("message", help="同步发一条消息")
+    p.add_argument("content")
+    p.add_argument("--channel", default="cli")
+    p.add_argument("--sender", default="kwelldo")
+    p.set_defaults(func=cmd_message)
+
+    p = sub.add_parser("awareness", help="触发一次自我觉察")
+    p.add_argument("--trigger", default="T1", choices=["T1", "T2", "T3", "T4", "T5", "T6"])
+    p.add_argument("--context", default="")
+    p.set_defaults(func=cmd_awareness)
+
+    p = sub.add_parser("serve", help="启动常驻网关")
+    p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("doctor", help="部署前自检")
+    p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("demo", help="离线端到端 demo")
+    p.set_defaults(func=cmd_demo)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return int(args.func(args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

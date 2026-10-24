@@ -1,0 +1,34 @@
+[Unit]
+Description=YuGang digital-life gateway (大肥鱼)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dafeiyu
+Group=dafeiyu
+WorkingDirectory=/home/dafeiyu/yugang
+EnvironmentFile=/etc/dafeiyu-dsh.env
+Environment=PYTHONPATH=/home/dafeiyu/yugang/src
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m yugang --home /home/dafeiyu/.yugang serve
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+
+# A small, boring body. The model is called only while awake.
+MemoryMax=1200M
+CPUQuota=80%
+TasksMax=64
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=/home/dafeiyu
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
