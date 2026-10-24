@@ -208,6 +208,19 @@ def cmd_message(args: argparse.Namespace) -> int:
         service.stop()
 
 
+def cmd_redact(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = make_store(cfg)
+    info = store.redact_event(
+        args.event_id,
+        args.reason,
+        actor=args.actor,
+        replacement=args.replacement,
+    )
+    _print_json({"ok": True, **info})
+    return 0
+
+
 def cmd_awareness(args: argparse.Namespace) -> int:
     cfg = load_config(args)
     service = make_service(cfg, mock=args.mock)
@@ -418,6 +431,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--channel", default="cli")
     p.add_argument("--sender", default="kwelldo")
     p.set_defaults(func=cmd_message)
+
+    p = sub.add_parser("redact", help="隐藏一条 L1 事件的可读内容（不重写哈希链）")
+    p.add_argument("event_id")
+    p.add_argument("--reason", required=True)
+    p.add_argument("--actor", default="operator")
+    p.add_argument("--replacement", default="[已删除]")
+    p.set_defaults(func=cmd_redact)
 
     p = sub.add_parser("awareness", help="触发一次自我觉察")
     p.add_argument("--trigger", default="T1", choices=["T1", "T2", "T3", "T4", "T5", "T6"])

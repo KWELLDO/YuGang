@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：72 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查）。
+- 自动化测试：74 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -169,3 +169,9 @@
 - 私有网络：目前是 SSH 隧道；Tailscale/WireGuard 还需要手机端安装与授权。
 - 更长的连续运行观察：跨日预算、异常/重启后的恢复、觉察卡进入唤醒上下文。
 - 觉察卡复核已部署并验证（5 张卡以 status=open 记录 note，无卡被强行关闭）；下一步观察她是否在无人提示时先读记忆，以及是否会把重复卡片合并。
+## 隐私删除（04:32 CST，代码完成）
+
+- `redactions` 表之前存在但从未被使用。新增 `MemoryStore.redact_event(event_id, reason, *, actor="operator", replacement="[已删除]")`：写一条 L1 `system/action`（refs 指向被删事件、meta.stage=redaction），并插入 `redactions` 行。
+- `get_event()`、`events()` 读时返回 replacement，并在 meta 标 `redacted=True`；`recall()` 跳过被删事件，连 FTS 命中的 snippet 也不会泄漏。
+- 哈希链不改写：原始 bytes 仍在 events 表里，`verify_chain()` 仍为 true；这不是密码学擦除，真正擦除需要重建日志。
+- CLI：`yugang --home <home> redact <event_id> --reason "..."`。测试 `test_redaction_hides_content_without_rewriting_the_chain`、`test_redaction_requires_a_reason`；全量 **74 passed**。

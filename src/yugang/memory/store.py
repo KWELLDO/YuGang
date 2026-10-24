@@ -6,6 +6,7 @@ import json
 import sqlite3
 import threading
 from collections import Counter
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -177,9 +178,37 @@ class MemoryStore:
             raise
         return self.get_event(data["id"])  # type: ignore[return-value]
 
+    def redactions(self) -> dict[str, str]:
+        """Read-time redaction overlay.
+
+        L1 stays append-only: the original bytes are kept so the hash chain can
+        still be verified. Normal reads and recall return the replacement text
+        instead. Full erasure would require rebuilding the log and is not
+        something this method pretends to do.
+        """
+        rows = self.conn.execute("SELECT target_event_id, replacement FROM redactions").fetchall()
+        return {r["target_event_id"]: (r["replacement"] or "[已删除]") for r in rows}
+
+    def _with_redactions(self, events: list[Event], mapping: dict[str, str] | None = None) -> list[Event]:
+        mapping = self.redactions() if mapping is None else mapping
+        if not mapping:
+            return events
+        out: list[Event] = []
+        for event in events:
+            replacement = mapping.get(event.id)
+            if replacement is None:
+                out.append(event)
+            else:
+                meta = dict(event.meta)
+                meta["redacted"] = True
+                out.append(replace(event, content=replacement, meta=meta))
+        return out
+
     def get_event(self, event_id: str) -> Event | None:
         row = self.conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
-        return Event.from_row(row) if row else None
+        if not row:
+            return None
+        return self._with_redactions([Event.from_row(row)])[0]
 
     def events(
         self,
@@ -208,7 +237,7 @@ class MemoryStore:
             sql += " WHERE " + " AND ".join(where)
         sql += f" ORDER BY ts {direction}, rowid {direction} LIMIT ? OFFSET ?"
         args.extend([limit, offset])
-        return [Event.from_row(r) for r in self.conn.execute(sql, args).fetchall()]
+        return self._with_redactions([Event.from_row(r) for r in self.conn.execute(sql, args).fetchall()])
 
     def latest_event(self, kind: str | None = None) -> Event | None:
         rows = self.events(limit=1, kind=kind)
@@ -270,6 +299,37 @@ class MemoryStore:
             prev = row["hash"]
         return True, None
 
+    def redact_event(
+        self,
+        event_id: str,
+        reason: str,
+        *,
+        actor: str = "operator",
+        replacement: str = "[已删除]",
+    ) -> dict[str, Any]:
+        """Hide one event's readable content without rewriting the hash chain."""
+        if not reason.strip():
+            raise ValueError("a redaction requires a reason")
+        raw = self.conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+        if not raw:
+            raise ValueError(f"unknown event: {event_id}")
+        if self.conn.execute("SELECT 1 FROM redactions WHERE target_event_id = ?", (event_id,)).fetchone():
+            raise ValueError(f"event already redacted: {event_id}")
+        note = self.append_event(
+            "system",
+            "action",
+            f"操作员删除了事件 {event_id} 的可读内容：{reason}",
+            actor=actor,
+            refs=[event_id],
+            meta={"stage": "redaction", "reason": reason, "replacement": replacement},
+        )
+        rid = new_id("redact")
+        self.conn.execute(
+            "INSERT INTO redactions(id, ts, target_event_id, reason, actor, replacement) VALUES (?, ?, ?, ?, ?, ?)",
+            (rid, now_iso(), event_id, reason, actor, replacement),
+        )
+        return {"id": rid, "target_event_id": event_id, "note_event": note.id, "replacement": replacement}
+
     # ------------------------------------------------------------------- recall
 
     def recall(
@@ -284,6 +344,7 @@ class MemoryStore:
     ) -> list[RecallHit]:
         now = now or utcnow()
         query = (query or "").strip()
+        redacted = self.redactions()
         hits: list[RecallHit] = []
         tokenizer = self.conn.execute("SELECT value FROM meta WHERE key='fts_tokenizer'").fetchone()
         terms = [t for t in query.split() if t]
@@ -316,6 +377,8 @@ class MemoryStore:
                 except sqlite3.OperationalError:
                     rows = []
                 for row in rows:
+                    if row["id"] in redacted:
+                        continue
                     rank = row["rank"] if row["rank"] is not None else 0.0
                     rank_score = 1.0 / (1.0 + abs(float(rank)))
                     hits.append(RecallHit(Event.from_row(row), rank_score, row["snip"] or ""))
@@ -332,10 +395,14 @@ class MemoryStore:
             args.append(max(limit * 4, 16))
             rows = self.conn.execute(sql, args).fetchall()
             for row in rows:
+                if row["id"] in redacted:
+                    continue
                 ev = Event.from_row(row)
                 hits.append(RecallHit(ev, 0.5, ev.content[:160]))
         elif not query:
             for ev in self.events(limit=max(limit * 4, 16)):
+                if ev.id in redacted:
+                    continue
                 hits.append(RecallHit(ev, 0.5, ev.content[:160]))
         # Recency + provenance + future-self confirmation weighting.
         # An event that a later judgment was explicitly supported with is not just

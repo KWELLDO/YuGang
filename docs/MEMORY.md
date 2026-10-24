@@ -7,8 +7,10 @@ Every record has `source` (human / ai-observation / ai-interpretation / system /
 `actor`, `channel`, `refs`, `meta`, and `ts`.
 
 L1 is never updated or deleted by the application. A hash chain (`prev_hash` → `hash`)
-makes external tampering detectable. Privacy redaction, when added, will be a separate
-audited record — not a silent delete.
+makes external tampering detectable. Privacy redaction is an audited overlay: `redact_event()`
+writes a `redactions` row and an L1 `system/action` note, and normal reads plus `recall()`
+return `[已删除]` or skip the event. The raw row and hash chain stay intact for verification
+and backups. This is not cryptographic erasure: full erasure would require rebuilding the log.
 
 ## L2 — judgment history
 
