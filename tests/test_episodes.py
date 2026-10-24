@@ -86,11 +86,18 @@ def test_episode_does_not_reabsorb_the_previous_sleep_boundary(store, cfg):
         SleepResult(diary="第一次睡去，整理材料。", parsed=True),
         now=datetime(2026, 10, 25, 7, 0, tzinfo=timezone.utc),
     )
+    prompt = store.append_event(
+        "human",
+        "message",
+        "叫醒她的那条消息。",
+        ts=datetime(2026, 10, 25, 7, 0, 59, tzinfo=timezone.utc).isoformat(),
+    )
     wake = store.append_event(
         "system",
         "wake",
         "被新消息叫醒。",
         ts=datetime(2026, 10, 25, 7, 1, tzinfo=timezone.utc).isoformat(),
+        meta={"trigger_event": prompt.id},
     )
     evidence = store.append_event(
         "human",
@@ -105,7 +112,8 @@ def test_episode_does_not_reabsorb_the_previous_sleep_boundary(store, cfg):
         now=datetime(2026, 10, 25, 7, 5, tzinfo=timezone.utc),
     )
     episode = store.get_episode(second["episode"])
-    assert episode.start_ts == wake.ts
+    assert episode.start_ts == prompt.ts
+    assert prompt.id in episode.event_ids
     assert wake.id in episode.event_ids
     assert evidence.id in episode.event_ids
     assert second["diary_event"] in episode.event_ids

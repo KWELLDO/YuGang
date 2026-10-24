@@ -332,7 +332,9 @@ class GatewayService:
             self.store.mark_message(message_id, "processing")
         # A user message always wins over sleep and over the user reserve.
         if not self.window.is_awake():
-            wake_event = self._record_wake(f"用户消息 via {incoming.channel}", now)
+            wake_event = self._record_wake(
+                f"用户消息 via {incoming.channel}", now, trigger_event=incoming.event_id
+            )
             context = build_wake_context(
                 self.store,
                 self.config,
@@ -569,7 +571,9 @@ class GatewayService:
         return None
 
     # --------------------------------------------------------------------- wake
-    def _record_wake(self, reason: str, now: datetime) -> Any:
+    def _record_wake(
+        self, reason: str, now: datetime, trigger_event: str | None = None
+    ) -> Any:
         last_sleep = self.store.latest_event("sleep")
         last_wake = self.store.latest_event("wake")
         interrupted = False
@@ -585,7 +589,14 @@ class GatewayService:
                 gap = max(0.0, (now - parse_ts(anchor.ts)).total_seconds())
             except Exception:
                 gap = None
-        wake_event = record_wake(self.store, reason, now=now, gap_seconds=gap, interrupted=interrupted)
+        wake_event = record_wake(
+            self.store,
+            reason,
+            now=now,
+            gap_seconds=gap,
+            interrupted=interrupted,
+            trigger_event=trigger_event,
+        )
         self._current_wake_id = wake_event.id
         self.window.wake(now)
         return wake_event

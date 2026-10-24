@@ -463,6 +463,17 @@ def apply_sleep_result(
         first_wake = store.first_event_after(previous_sleep.ts, kind="wake")
         if first_wake is not None:
             window_start = first_wake.ts
+            # The message that woke her was written just before the wake
+            # event; include it so the episode contains its own trigger.
+            trigger_id = (getattr(first_wake, "meta", None) or {}).get("trigger_event")
+            if trigger_id:
+                trigger = store.get_event(trigger_id)
+                if trigger is not None:
+                    try:
+                        if parse_ts(previous_sleep.ts) < parse_ts(trigger.ts) <= parse_ts(first_wake.ts):
+                            window_start = trigger.ts
+                    except Exception:
+                        pass
         else:
             # No wake recorded after the previous sleep; fall back to the
             # boundary itself, exclusive, rather than re-absorbing it.

@@ -199,8 +199,10 @@ append-only narrative of one waking window, created when she sleeps.
 - At sleep, the gateway remembers the previous `sleep` event and collects the real L1 events
   between it and the new sleep. The window starts at the first `wake` after the previous
   sleep, so that window's own sleep/diary/stance consolidation is not re-absorbed into the
-  next episode; without a wake it falls back to just after the previous sleep, and the first
-  episode (no previous sleep) still starts at the first event. The model may provide
+  next episode; the message recorded just before the wake is included via the wake's
+  `trigger_event`, so the episode contains its own trigger. Without a wake it falls back to
+  just after the previous sleep, and the first episode (no previous sleep) still starts at the
+  first event. The model may provide
   `episode: {title, summary}`; if it does not, the system writes a diary-index fallback with
   `origin="diary"` instead of inventing one.
 - `episodes` rows are append-only (triggers reject update/delete). `event_ids` is the exact

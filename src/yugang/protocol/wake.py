@@ -69,14 +69,18 @@ def record_wake(
     now: datetime | None = None,
     gap_seconds: float | None = None,
     interrupted: bool = False,
+    trigger_event: str | None = None,
 ) -> Event:
     when = now or utcnow()
+    meta = {"reason": reason, "gap_seconds": gap_seconds, "interrupted": interrupted}
+    if trigger_event:
+        meta["trigger_event"] = trigger_event
     return store.append_event(
         "system",
         "wake",
         f"醒来：{reason}",
         ts=now_iso() if now is None else when.isoformat(timespec="microseconds"),
-        meta={"reason": reason, "gap_seconds": gap_seconds, "interrupted": interrupted},
+        meta=meta,
     )
 
 
