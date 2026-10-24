@@ -247,6 +247,47 @@ def test_sleep_reviews_open_awareness_cards_once(store, cfg):
     assert store.card_status(card.id) == "accepted"
 
 
+def test_accepted_awareness_card_can_justify_a_self_edit(store, cfg):
+    evidence = store.append_event("human", "message", "你这次先读了 SELF.md 再回答。")
+    card = create_card(
+        store,
+        {
+            "trigger": "T5",
+            "observation": "被指出模式后，我这次先去读了 SELF.md。",
+            "hypothesis": "外部提示能让我先核对自我模型，但我还没有自发这样做。",
+            "falsifier": "如果无人提示时我也先读 SELF.md，则此假设被推翻。",
+            "evidence_refs": [evidence.id],
+            "confidence": 0.7,
+        },
+    )
+    result = SleepResult(
+        diary="今天这张卡可以接受，但它只证明了被提示时的行为。",
+        awareness_reviews=[
+            {
+                "card_id": card.id,
+                "status": "accepted",
+                "note": "被提示后先读 SELF.md 的行为有 L1 证据。",
+                "self_edit": {
+                    "section": "我相信什么",
+                    "op": "append",
+                    "text": "被提示时我会先核对 SELF.md；这还不等于无人提示时也会。",
+                },
+            }
+        ],
+        parsed=True,
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    assert applied["awareness_reviews"] == 1
+    assert applied["awareness_self_edits"] == 1
+    assert applied["self_committed"] is True
+    version = store.current_self_version()
+    assert version is not None
+    assert card.id in version.reason
+    section = get_section(version.content, "我相信什么") or ""
+    assert "被提示时我会先核对 SELF.md" in section
+    assert evidence.id in section
+
+
 def test_sleep_can_note_a_card_without_closing_it(store, cfg):
     evidence = store.append_event("human", "message", "这次仍然是你叫我，我才读记忆")
     card = create_card(

@@ -39,6 +39,12 @@ model-supplied evidence ids. A malformed card is dropped with an audit note, not
 Open cards are included in the next wake context so they can be tested by later experience;
 a card can be reviewed as accepted, rejected, or needs-evidence.
 
+A card accepted during sleep can carry one structured `self_edit`. The system ignores any
+`evidence_refs` supplied inside that edit and uses the card's own L1 evidence instead, so a
+card-to-SELF change cannot smuggle in fabricated citations. The new SELF version's reason
+names the card id; the edit remains visible in the diff and can later be reviewed or
+superseded.
+
 ## SELF edits
 
 A sleep run does not hand over a complete new SELF.md. It may propose at most two

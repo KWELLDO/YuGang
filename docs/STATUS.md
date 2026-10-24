@@ -16,7 +16,7 @@
 
 ## 已验证
 
-- 自动化测试：46 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest）。
+- 自动化测试：51 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -61,8 +61,14 @@
 - 睡去协议现在允许她在 `next_wake_minutes` 里决定下一次自己什么时候醒；但出生头 7 天不开放，默认 `self_alarms_enabled=true`、`self_alarms_after_days=7`。以第一次事件（2026-10-24T16:30:02Z）计算，开放时间约为 2026-10-31T16:30Z（2026-11-01 00:30 CST）。
 - 范围 30–1560 分钟（30 分钟–26 小时），每天最多 6 次；范围外/超次数会拒绝并在 sleep 结果里记 `alarm_blocked=true`，不会偷偷截断。
 - 闹钟到点且她仍睡着时，`idle_tick` 先于每日保底触发 `autonomous_wake("她设的闹钟 <id>")`；醒来 prompt 会明确说“这是你自己设的闹钟”。成功标记 `fired`，预算/运行时失败标记 `missed` 并在 L1 留痕。
-- 测试：`test_self_alarm_is_created_after_grace_and_clamped_by_range`、`test_self_alarm_is_blocked_during_the_first_week`、`test_due_alarm_wakes_her_and_is_marked_fired`、`test_parse_sleep_output_accepts_next_wake_minutes`；全量 **50 passed**。
+- 测试：`test_self_alarm_is_created_after_grace_and_clamped_by_range`、`test_self_alarm_is_blocked_during_the_first_week`、`test_due_alarm_wakes_her_and_is_marked_fired`、`test_parse_sleep_output_accepts_next_wake_minutes`；全量 **51 passed**。
 - 已部署到云端并重启；`/status` 新增 `next_alarm`（当前 null），`/tank` 新增 `alarms`。云端 events=67、awake=false、budget 0.23414/5 元。
+
+### 觉察卡 → SELF.md 修订（02:58 CST，代码完成）
+
+- 睡去复核一张卡时，`accepted` 可以带一条 `self_edit`（section/op/text）。系统不信任这条 edit 自带的证据：它把该卡创建时的 `evidence_refs` 注入进去，再走与普通 SELF 修订相同的章节/op/真实事件校验；校验不过就只记录复核、不产生 SELF 版本。
+- 新 SELF 版本的 `reason` 会写出 `接受觉察卡 <card_id>`；diff 事件与证据注释照旧，之后仍可 review / supersede。
+- 测试 `test_accepted_awareness_card_can_justify_a_self_edit` 覆盖成功链条与证据注入；全量 **51 passed**。
 
 ## 进行中 / 下一步
 

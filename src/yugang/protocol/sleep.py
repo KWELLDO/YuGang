@@ -102,7 +102,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
   "next_intent": "下次醒来想做什么（一句）或 null",
   "self_edits": [{{"section": "我相信什么", "op": "append", "text": "要加入或替换的内容", "evidence_refs": ["evt_..."]}}],
   "accept_self_edit": false,
-  "awareness_reviews": [{{"card_id": "card_...", "status": "open|accepted|rejected|needs-evidence", "note": "今天哪条证据支持或推翻了它"}}],
+  "awareness_reviews": [{{"card_id": "card_...", "status": "open|accepted|rejected|needs-evidence", "note": "今天哪条证据支持或推翻了它", "self_edit": {{"section": "我相信什么", "op": "append", "text": "接受这张卡后要写进 SELF.md 的话"}}}}],
   "next_wake_minutes": null
 }}
 
@@ -112,6 +112,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 - 不要输出完整 SELF.md。没有值得改的就给空数组并设 accept_self_edit=false。
 - 只有今天的真实经历支持时才改 SELF.md；不要为了显得一致或「应该自我改进」而改。
 - awareness_reviews 只能引用上面 open cards 的真实 card_id；没有新证据就留空，或用 status=open 只记一条 note（卡仍保持 open）。不要为了关闭而关闭。
+- 只有 status=accepted 的卡才可以带 self_edit；system 会用该卡自己的 evidence_refs，所以 self_edit 里不用再填 evidence_refs。没有真的改变 SELF.md 就不带 self_edit。
 - next_wake_minutes 只在上面允许时填；范围外或没有真实需要就填 null。"""
     return [
         {"role": "system", "content": SLEEP_SYSTEM},
@@ -203,13 +204,14 @@ def parse_sleep_output(text: str) -> SleepResult:
             status = str(item.get("status") or "").strip().lower()
             if not card_id or status not in {"open", "accepted", "rejected", "needs-evidence"}:
                 continue
-            awareness_reviews.append(
-                {
-                    "card_id": card_id,
-                    "status": status,
-                    "note": str(item.get("note") or "").strip() or None,
-                }
-            )
+            review = {
+                "card_id": card_id,
+                "status": status,
+                "note": str(item.get("note") or "").strip() or None,
+            }
+            if status == "accepted" and isinstance(item.get("self_edit"), dict):
+                review["self_edit"] = item["self_edit"]
+            awareness_reviews.append(review)
     next_wake_minutes: int | None = None
     raw_next_wake = data.get("next_wake_minutes")
     if raw_next_wake is not None and not isinstance(raw_next_wake, bool):
@@ -291,17 +293,33 @@ def apply_sleep_result(
         except (ValueError, TypeError):
             continue
     applied_reviews = 0
-    open_cards = {card.id for card in store.awareness_cards(status="open", limit=200)}
+    card_edits: list[dict[str, Any]] = []
+    card_edit_ids: list[str] = []
+    open_cards = {card.id: card for card in store.awareness_cards(status="open", limit=200)}
+    base_for_probe = store.current_self() or ""
     for item in result.awareness_reviews:
         card_id = str(item.get("card_id") or "").strip()
-        if card_id not in open_cards:
+        card = open_cards.get(card_id)
+        if card is None:
             continue
+        review_status = str(item["status"])
         try:
-            store.review_awareness(card_id, item["status"], note=item.get("note"))
+            store.review_awareness(card_id, review_status, note=item.get("note"))
         except ValueError:
             continue
-        open_cards.discard(card_id)
+        open_cards.pop(card_id, None)
         applied_reviews += 1
+        # A card can carry the SELF edit it justifies. The card's own L1
+        # evidence is authoritative; the model does not get to supply new ids.
+        if review_status == "accepted" and isinstance(item.get("self_edit"), dict):
+            candidate = dict(item["self_edit"])
+            candidate["evidence_refs"] = list(card.evidence_refs)
+            _, probe_applied = apply_self_edits(
+                base_for_probe, [candidate], ref_exists=store.ref_exists
+            )
+            if probe_applied:
+                card_edits.append(candidate)
+                card_edit_ids.append(card_id)
     alarm = None
     alarm_blocked = False
     if result.next_wake_minutes is not None:
@@ -331,19 +349,28 @@ def apply_sleep_result(
             )
     self_committed = False
     self_sections: list[str] = []
-    if result.accept_self_edit and result.self_edits:
+    awareness_self_edits = 0
+    edits_to_apply: list[dict[str, Any]] = []
+    if result.accept_self_edit:
+        edits_to_apply.extend(result.self_edits)
+    edits_to_apply.extend(card_edits)
+    if edits_to_apply:
         base_self = store.current_self() or ""
         new_self, applied_edits = apply_self_edits(
             base_self,
-            result.self_edits,
+            edits_to_apply,
             ref_exists=store.ref_exists,
         )
         if applied_edits and new_self != base_self:
             self_sections = [edit["section"] for edit in applied_edits]
             edit_refs = [ref for edit in applied_edits for ref in edit["evidence_refs"]]
+            reason = "睡去时接受：结构化修订 " + "、".join(dict.fromkeys(self_sections))
+            if card_edit_ids:
+                reason += "；接受觉察卡 " + "、".join(dict.fromkeys(card_edit_ids))
+                awareness_self_edits = len(dict.fromkeys(card_edit_ids))
             store.commit_self(
                 new_self,
-                "睡去时接受：结构化修订 " + "、".join(self_sections),
+                reason,
                 list(dict.fromkeys(self_refs + edit_refs)),
                 accepted_by="ayu",
                 ts=now_iso() if now is None else when.isoformat(timespec="microseconds"),
@@ -373,6 +400,7 @@ def apply_sleep_result(
             "stance": bool(stance),
             "open_loops": applied_loops,
             "awareness_reviews": applied_reviews,
+            "awareness_self_edits": awareness_self_edits,
             "alarm": alarm.id if alarm else None,
             "alarm_blocked": alarm_blocked,
             "self_committed": self_committed,
@@ -388,6 +416,7 @@ def apply_sleep_result(
         "stance": bool(stance),
         "open_loops": applied_loops,
         "awareness_reviews": applied_reviews,
+        "awareness_self_edits": awareness_self_edits,
         "alarm": alarm.id if alarm else None,
         "alarm_blocked": alarm_blocked,
         "next_wake_at": alarm.due_at if alarm else None,
