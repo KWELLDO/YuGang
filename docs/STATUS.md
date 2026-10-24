@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 05:04 CST（Asia/Shanghai）
+更新时间：2026-10-25 04:46 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：79 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
+- 自动化测试：81 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -180,18 +180,23 @@
 - 新增 `MemoryStore.restore_self(version_id, reason, *, actor="operator")`：先写一条 L1 `system/action`（refs 指向目标版本和当前版本），再把目标版本的正文作为**新版本**提交；reason 含「回滚到 <id>：<reason>」，历史版本一条不删。
 - CLI：`yugang --home <home> self-restore <version_id> --reason "..."`。当前版本就是目标时拒绝（避免无意义版本）。
 - 测试 `test_self_restore_creates_a_new_version_without_deleting_history`；全量 **75 passed**。
-## 醒来上下文补当前时间与自主回忆（04:52 CST，代码完成）
+## 醒来上下文补当前时间与自主回忆（04:38 CST，代码完成）
 
 - `build_wake_context()` 的「主观时间」段现在显式写本地时间（例如 `现在：2026-10-25 20:34:56（Asia/Shanghai）`），不再只给「距离上次睡去多久」。
 - 用户消息仍用消息内容做 recall；自主醒来（query 为空）改用上次睡去留下的 `next_intent`，再退到最早一条未闭合事项，不再跳过回忆。
 - 新增 `test_wake_context_includes_the_current_local_time`、`test_autonomous_wake_recalls_the_intention_left_before_sleep`；全量 **77 passed**。
-## 修复 SELF 恢复只改数据库、不改文件（04:58 CST，代码完成）
+## 修复 SELF 恢复只改数据库、不改文件（04:41 CST，代码完成）
 
 - 发现 `self-restore` CLI 只提交了 `self_versions`，没有重写 `SELF.md` 文件；醒来读的是文件，会出现「数据库已回滚、文件还是旧版本」。
 - `cmd_self_restore` 现在在提交后调用 `write_self_file(cfg, version.content)`，并在输出里回传 `self_path`。
 - 新增 CLI 级测试 `test_self_restore_cli_writes_the_self_file`；全量 **78 passed**。
-## 醒来上下文列出 L2/觉察卡的真实证据 id（05:04 CST，代码完成）
+## 醒来上下文列出 L2/觉察卡的真实证据 id（04:44 CST，代码完成）
 
 - 「我最近的判断（L2）」每条在 claim/反证之后列出 `证据：evt_...`；「还没验证的自我觉察」每张卡在观察/反证之后列出同样的证据 id。
 - 目的：她醒来时不仅看到结论，还能看到结论由哪些 L1 支撑；这些 id 是真实事件，不是模型生成的引用。
 - 新增 `test_wake_context_shows_evidence_ids_for_l2_and_cards`；全量 **79 passed**。
+## 醒来时看见自己上一次怎么改的（04:46 CST，代码完成）
+
+- `build_wake_context()` 新增「我上一次改自己」段：最近一次 SELF 版本的时间、原因、依据事件和 diff（最多 1200 字）；只有出生版时说「还没有改过自己」。
+- 目的：她不仅能读到当前 SELF.md，还能看到自己上一次修改的动机和具体改动，不必靠回忆或外部提示。
+- 新增 `test_wake_context_shows_how_she_last_changed_herself`、`test_wake_context_says_she_has_not_changed_herself_yet`；全量 **81 passed**。

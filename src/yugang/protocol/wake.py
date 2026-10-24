@@ -39,6 +39,7 @@ class WakeContext:
     recent: list[Event] = field(default_factory=list)
     stance: Any | None = None
     judgments: list[Any] = field(default_factory=list)
+    self_history: list[Any] = field(default_factory=list)
 
 
 def _gap_seconds(now: datetime, last_ts: str | None) -> float | None:
@@ -116,6 +117,7 @@ def build_wake_context(
     cards = reviewable_cards(store, 10)
     stance = store.current_stance()
     judgments = store.current_judgments(limit=6)
+    self_history = store.self_history(limit=2)
     pending = store.pending_messages(limit=10)
     recent = list(reversed(store.events(limit=int(getattr(config, "recent_event_limit", 16)), order="desc")))
     # On a user message, recall from what was just said. On an autonomous wake
@@ -153,6 +155,19 @@ def build_wake_context(
     lines.append("")
     lines.append("## SELF.md（当前版本）")
     lines.append(self_text or "（还没有 SELF.md；只有一个空的身体。）")
+    lines.append("")
+    lines.append("## 我上一次改自己")
+    if len(self_history) >= 2:
+        previous = self_history[0]
+        lines.append(f"时间：{previous.ts}")
+        lines.append(f"原因：{previous.reason}")
+        if previous.evidence_refs:
+            lines.append("依据：" + ", ".join(previous.evidence_refs[:8]))
+        if previous.diff:
+            lines.append("变化：")
+            lines.append(previous.diff[:1200].rstrip())
+    else:
+        lines.append("（还没有改过自己；现在的 SELF.md 是出生材料。）")
     lines.append("")
     lines.append("## 我现在的立场（L3）")
     if stance:
@@ -236,6 +251,7 @@ def build_wake_context(
         recent=recent,
         stance=stance,
         judgments=judgments,
+        self_history=self_history,
     )
 
 

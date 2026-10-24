@@ -23,6 +23,21 @@ def test_autonomous_wake_recalls_the_intention_left_before_sleep(store, cfg):
     assert memory.id in {hit.event.id for hit in context.recalled}
 
 
+def test_wake_context_shows_how_she_last_changed_herself(store, cfg):
+    first = store.current_self_version()
+    evidence = store.append_event("human", "message", "一条促成修订的材料")
+    second = store.commit_self(first.content + "\n- 这是上一次改自己的内容。\n", "测试修订：加了一句", [evidence.id])
+    context = build_wake_context(store, cfg, query="")
+    assert "我上一次改自己" in context.prompt
+    assert "测试修订：加了一句" in context.prompt
+    assert second.id == context.self_history[0].id
+
+
+def test_wake_context_says_she_has_not_changed_herself_yet(store, cfg):
+    context = build_wake_context(store, cfg, query="")
+    assert "还没有改过自己" in context.prompt
+
+
 def test_wake_context_shows_evidence_ids_for_l2_and_cards(store, cfg):
     evidence = store.append_event("human", "message", "一条可以引用的材料")
     judgment = store.add_judgment("这条判断有来源", "如果找不到来源就被推翻", [evidence.id], 0.5)
