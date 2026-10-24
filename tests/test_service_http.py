@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import json
 import time
+from pathlib import Path
 
 import pytest
 
@@ -293,6 +294,22 @@ def test_tank_includes_judgment_and_card_status(running):
     assert tank["awareness"][0]["status"] == "accepted"
     assert tank["self_history"][0]["id"]
     assert "reason" in tank["self_history"][0]
+
+
+def test_body_state_reads_real_counts_and_the_latest_backup(running):
+    service, store, cfg = running
+    backup_dir = Path(cfg.home) / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    (backup_dir / "yugang-20261025.manifest.json").write_text(
+        json.dumps({"created_at": "2026-10-25T04:15:00+00:00", "db": "yugang-20261025.db"}),
+        encoding="utf-8",
+    )
+    body = service._body_state()
+    assert body["events"] == store.event_count()
+    assert body["budget"]["budget_cny"] == 5.0
+    assert body["last_backup"]["db"] == "yugang-20261025.db"
+    assert body["next_alarm"] is None
+    assert body["paused"] is False
 
 
 def test_tank_surfaces_the_last_diary_and_next_intent(running):

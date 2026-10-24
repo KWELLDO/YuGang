@@ -284,11 +284,23 @@ class GatewayService:
         if not self.window.is_awake():
             wake_event = self._record_wake(f"用户消息 via {incoming.channel}", now)
             context = build_wake_context(
-                self.store, self.config, query=incoming.content, now=now, current_wake_id=wake_event.id, new_wake=True
+                self.store,
+                self.config,
+                query=incoming.content,
+                now=now,
+                current_wake_id=wake_event.id,
+                new_wake=True,
+                body=self._body_state(now),
             )
         else:
             context = build_wake_context(
-                self.store, self.config, query=incoming.content, now=now, current_wake_id=self._current_wake_id, new_wake=False
+                self.store,
+                self.config,
+                query=incoming.content,
+                now=now,
+                current_wake_id=self._current_wake_id,
+                new_wake=False,
+                body=self._body_state(now),
             )
             self.window.touch(now)
         messages = build_messages(context, incoming.content)
@@ -547,7 +559,13 @@ class GatewayService:
             return None
         wake_event = self._record_wake(reason, now)
         context = build_wake_context(
-            self.store, self.config, query="", now=now, current_wake_id=wake_event.id, new_wake=True
+            self.store,
+            self.config,
+            query="",
+            now=now,
+            current_wake_id=wake_event.id,
+            new_wake=True,
+            body=self._body_state(now),
         )
         messages = morning_check_messages(context, reason=reason)
         estimated = self.budget.estimate(messages, int(getattr(self.config, "reply_max_tokens", 2000)), self.config.model)
@@ -694,6 +712,55 @@ class GatewayService:
         return applied
 
     # ------------------------------------------------------------------- status
+    def _body_state(self, now: datetime | None = None) -> dict[str, Any]:
+        """Real system readings she can use while waking. This is data, not an experience."""
+        now = now or self.now_fn()
+        summary = self.budget.summary(now)
+        backup: dict[str, Any] | None = None
+        backup_dir = Path(self.config.home) / "backups"
+        try:
+            manifests = sorted(
+                backup_dir.glob("*.manifest.json"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            manifests = []
+        if manifests:
+            try:
+                data = json.loads(manifests[0].read_text(encoding="utf-8"))
+                backup = {"created_at": data.get("created_at"), "db": data.get("db")}
+            except (OSError, ValueError):
+                backup = {"created_at": None, "db": manifests[0].name}
+        alarms = self.store.pending_alarms(limit=1)
+        due_alarm = None
+        next_alarm = None
+        if alarms:
+            alarm = alarms[0]
+            try:
+                is_due = parse_ts(alarm.due_at) <= now
+            except Exception:
+                is_due = False
+            payload = {"due_at": alarm.due_at, "reason": alarm.reason}
+            if is_due:
+                due_alarm = payload
+            else:
+                next_alarm = payload
+        return {
+            "events": self.store.event_count(),
+            "budget": {
+                "budget_cny": summary.budget_cny,
+                "spent_cny": summary.spent_cny,
+                "remaining_cny": summary.remaining_cny,
+            },
+            "stage": self.budget.stage(now),
+            "last_backup": backup,
+            "next_alarm": next_alarm,
+            "due_alarm": due_alarm,
+            "channels": [getattr(c, "name", type(c).__name__) for c in self.channels],
+            "paused": self.paused_info() is not None,
+        }
+
     def status(self) -> dict[str, Any]:
         now = self.now_fn()
         summary = self.budget.summary(now)

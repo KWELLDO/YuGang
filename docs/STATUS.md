@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：92 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
+- 自动化测试：95 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤、醒来时的身体状态读数）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -243,3 +243,12 @@
 - 鱼缸页新增「上一次的日记」卡片，显示日记全文（`textContent`，无 HTML 注入）和「下次醒来想做」；没有日记时写「她还没有写过睡去日记。」
 - 新增 `test_tank_surfaces_the_last_diary_and_next_intent`；鱼缸页 HTML 测试断言 `id="diary"` 与 `id="next-intent"`；全量 **93 passed**；页面 JS 通过 `node --check`。
 - 云端部署后验证：`/tank` 的 `last_sleep.diary_event` 是 `evt_20261024T210736931084_1839af`，`diary` 为当次第一人称日记，`next_intent` 为「先查当前视图，不拿旧记忆当当前状态」；页面 HTML 含「上一次的日记」；服务 active、awake=false、events=157。
+
+### 醒来时读到真实的身体状态（05:42 CST，已实现）
+
+- 之前醒来上下文有 SELF、L3、L2、觉察卡、未闭合事项和 L1，却没有她自己的身体读数；她无法知道自己今天还剩多少预算、最近有没有备份、下次闹钟是什么、哪些通道在收消息。
+- `WakeContext` 新增 `body: dict | None`；`build_wake_context(..., body=...)` 可注入系统读数，prompt 新增「我的身体状态（系统读数，不是体验）」。
+- `GatewayService._body_state(now)` 从真实来源构造：`store.event_count()`、`BudgetGuard.summary()` / `stage()`、`<home>/backups/*.manifest.json` 的最新一项、`store.pending_alarms(1)`、已注册 channel 名称、`paused_info()`。闹钟已到期时放在 `due_alarm`，未到期才放在 `next_alarm`，避免把正在叫醒她的闹钟说成“下一次”。
+- prompt 只陈述读数（L1 条数、已用/总预算/剩余、最近备份时间、下一次/正在响的闹钟、通道、是否暂停），不写「我感到」；身体状态不是体验，而是可核对的材料。
+- `process_message`（新醒来与同窗口续聊）和 `autonomous_wake` 都把 `body=self._body_state(now)` 传入；`build_wake_context` 的直接调用方可省略。
+- 测试：`test_wake_context_reports_body_readings_without_claiming_experience`、`test_body_state_reads_real_counts_and_the_latest_backup`；全量 **95 passed**。

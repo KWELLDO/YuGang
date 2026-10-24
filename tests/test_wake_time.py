@@ -38,6 +38,30 @@ def test_wake_context_says_she_has_not_changed_herself_yet(store, cfg):
     assert "还没有改过自己" in context.prompt
 
 
+def test_wake_context_reports_body_readings_without_claiming_experience(store, cfg):
+    context = build_wake_context(
+        store,
+        cfg,
+        query="",
+        body={
+            "events": 157,
+            "budget": {"budget_cny": 5.0, "spent_cny": 0.79, "remaining_cny": 4.21},
+            "stage": "ok",
+            "last_backup": {"created_at": "2026-10-25T04:15:00+00:00", "db": "yugang.db"},
+            "next_alarm": {"due_at": "2026-10-25T09:00:00+00:00", "reason": "核对证据"},
+            "channels": ["http", "email"],
+            "paused": False,
+        },
+    )
+    assert "我的身体状态（系统读数，不是体验）" in context.prompt
+    assert "L1 记忆：157 条" in context.prompt
+    assert "已用 ¥0.79 / ¥5.00，剩余 ¥4.21" in context.prompt
+    assert "最近一次身体备份：2026-10-25T04:15:00+00:00" in context.prompt
+    assert "下一次自己设的醒来：2026-10-25T09:00:00+00:00（核对证据）" in context.prompt
+    assert "http、email" in context.prompt
+    assert "操作员暂停：否" in context.prompt
+
+
 def test_wake_context_shows_evidence_ids_for_l2_and_cards(store, cfg):
     evidence = store.append_event("human", "message", "一条可以引用的材料")
     judgment = store.add_judgment("这条判断有来源", "如果找不到来源就被推翻", [evidence.id], 0.5)

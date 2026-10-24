@@ -40,6 +40,7 @@ class WakeContext:
     stance: Any | None = None
     judgments: list[Any] = field(default_factory=list)
     self_history: list[Any] = field(default_factory=list)
+    body: dict[str, Any] | None = None
 
 
 def _gap_seconds(now: datetime, last_ts: str | None) -> float | None:
@@ -85,6 +86,7 @@ def build_wake_context(
     now: datetime | None = None,
     current_wake_id: str | None = None,
     new_wake: bool | None = None,
+    body: dict[str, Any] | None = None,
 ) -> WakeContext:
     now = now or utcnow()
     if new_wake is None:
@@ -153,6 +155,40 @@ def build_wake_context(
         if last_intent:
             lines.append(f"上次睡前留下的下次意图：{last_intent}")
     lines.append("")
+    if body:
+        lines.append("## 我的身体状态（系统读数，不是体验）")
+        if body.get("events") is not None:
+            lines.append(f"- L1 记忆：{body['events']} 条。")
+        budget = body.get("budget") or {}
+        if budget:
+            lines.append(
+                f"- 今天预算：已用 ¥{float(budget.get('spent_cny', 0)):.2f}"
+                f" / ¥{float(budget.get('budget_cny', 0)):.2f}，"
+                f"剩余 ¥{float(budget.get('remaining_cny', 0)):.2f}；"
+                f"状态：{body.get('stage', 'ok')}。"
+            )
+        backup = body.get("last_backup")
+        if backup:
+            when = backup.get("created_at") or backup.get("db") or "未知时间"
+            lines.append(f"- 最近一次身体备份：{when}。")
+        else:
+            lines.append("- 最近一次身体备份：还没有。")
+        due_alarm = body.get("due_alarm")
+        if due_alarm:
+            lines.append(
+                f"- 叫醒我的就是我自己设的闹钟：{due_alarm.get('due_at')}"
+                f"（{due_alarm.get('reason') or '没有写理由'}）。"
+            )
+        alarm = body.get("next_alarm")
+        if alarm:
+            lines.append(f"- 下一次自己设的醒来：{alarm.get('due_at')}（{alarm.get('reason') or '没有写理由'}）。")
+        elif not due_alarm:
+            lines.append("- 下一次自己设的醒来：还没有设。")
+        channels = body.get("channels") or []
+        if channels:
+            lines.append("- 现在能收到消息的通道：" + "、".join(str(c) for c in channels) + "。")
+        lines.append(f"- 操作员暂停：{'是，模型调用被暂停。' if body.get('paused') else '否。'}")
+        lines.append("")
     lines.append("## SELF.md（当前版本）")
     lines.append(self_text or "（还没有 SELF.md；只有一个空的身体。）")
     lines.append("")
@@ -253,6 +289,7 @@ def build_wake_context(
         stance=stance,
         judgments=judgments,
         self_history=self_history,
+        body=body,
     )
 
 
