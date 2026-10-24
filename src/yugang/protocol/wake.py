@@ -177,6 +177,8 @@ def build_wake_context(
                 f"（置信 {judgment.confidence:.2f}）：{judgment.claim}"
             )
             lines.append(f"  反证：{judgment.falsifier}")
+            if getattr(judgment, "evidence_refs", None):
+                lines.append("  证据：" + ", ".join(judgment.evidence_refs[:6]))
     else:
         lines.append("（还没有需要保留的判断。）")
     lines.append("")
@@ -189,6 +191,8 @@ def build_wake_context(
                 f"- [{card.id}] {card_labels.get(status, status)} {card.trigger}：{card.hypothesis}"
                 f"（观察：{card.observation[:300]}；反证：{card.falsifier}）"
             )
+            if getattr(card, "evidence_refs", None):
+                lines.append("  证据：" + ", ".join(card.evidence_refs[:6]))
     else:
         lines.append("（没有。）")
     lines.append("")

@@ -21,3 +21,20 @@ def test_autonomous_wake_recalls_the_intention_left_before_sleep(store, cfg):
     )
     context = build_wake_context(store, cfg, query="", now=datetime(2026, 10, 25, 4, 0, tzinfo=timezone.utc))
     assert memory.id in {hit.event.id for hit in context.recalled}
+
+
+def test_wake_context_shows_evidence_ids_for_l2_and_cards(store, cfg):
+    evidence = store.append_event("human", "message", "一条可以引用的材料")
+    judgment = store.add_judgment("这条判断有来源", "如果找不到来源就被推翻", [evidence.id], 0.5)
+    card = store.add_awareness_card(
+        "T5",
+        "我注意到一件事",
+        "这件事可能是一个模式",
+        "如果下一次没有出现，就被推翻",
+        [evidence.id],
+        0.5,
+    )
+    context = build_wake_context(store, cfg, query="")
+    assert evidence.id in context.prompt
+    assert judgment.id in context.prompt
+    assert card.id in context.prompt

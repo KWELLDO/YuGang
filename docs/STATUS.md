@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 04:58 CST（Asia/Shanghai）
+更新时间：2026-10-25 05:04 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：78 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
+- 自动化测试：79 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -190,3 +190,8 @@
 - 发现 `self-restore` CLI 只提交了 `self_versions`，没有重写 `SELF.md` 文件；醒来读的是文件，会出现「数据库已回滚、文件还是旧版本」。
 - `cmd_self_restore` 现在在提交后调用 `write_self_file(cfg, version.content)`，并在输出里回传 `self_path`。
 - 新增 CLI 级测试 `test_self_restore_cli_writes_the_self_file`；全量 **78 passed**。
+## 醒来上下文列出 L2/觉察卡的真实证据 id（05:04 CST，代码完成）
+
+- 「我最近的判断（L2）」每条在 claim/反证之后列出 `证据：evt_...`；「还没验证的自我觉察」每张卡在观察/反证之后列出同样的证据 id。
+- 目的：她醒来时不仅看到结论，还能看到结论由哪些 L1 支撑；这些 id 是真实事件，不是模型生成的引用。
+- 新增 `test_wake_context_shows_evidence_ids_for_l2_and_cards`；全量 **79 passed**。
