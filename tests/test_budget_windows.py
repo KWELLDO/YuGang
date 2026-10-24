@@ -224,4 +224,5 @@ def test_due_alarm_wakes_her_and_is_marked_fired(store, cfg):
     wakes = [e for e in store.events(limit=20) if e.kind == "wake"]
     assert any(alarm.id in (e.content or "") for e in wakes)
     assert any(e.kind == "observation" and "那件事" in e.content for e in store.events(limit=20))
+    assert "你自己设的闹钟" in runtime.calls[0]["messages"][1]["content"]
 
