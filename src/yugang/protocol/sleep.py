@@ -25,6 +25,8 @@ class SleepResult:
     open_loops: list[dict[str, Any]] = field(default_factory=list)
     loop_updates: list[dict[str, Any]] = field(default_factory=list)
     closed_loops: list[dict[str, Any]] = field(default_factory=list)
+    practices: list[dict[str, Any]] = field(default_factory=list)
+    practice_updates: list[dict[str, Any]] = field(default_factory=list)
     next_intent: str | None = None
     self_edit: str | None = None
     self_edits: list[dict[str, Any]] = field(default_factory=list)
@@ -60,6 +62,11 @@ def _reviewable_judgments(store: Any, limit: int = 20) -> list[Any]:
     return items[:limit]
 
 
+def _norm_practice(text: str) -> str:
+    """Cheap duplicate key for a practice text (keeps CJK letters/digits)."""
+    return "".join(ch for ch in (text or "").lower() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
+
+
 def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str]]) -> list[dict[str, str]]:
     events = store.events(limit=30, order="desc")
     lines = [f"[{e.id}] {e.ts} {e.source}/{e.kind}: {e.content[:500]}" for e in reversed(events)]
@@ -70,6 +77,8 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
         f"  falsifier={card.falsifier}\n  evidence={', '.join(card.evidence_refs)}"
         for card in cards
     ]
+    active_practices = store.practices(status="active", limit=50)
+    practice_lines = [f"- [{p.id}] {p.text}\n  evidence={', '.join(p.evidence_refs)}" for p in active_practices]
     open_judgments = _reviewable_judgments(store, 20)
     judgment_lines = [
         f"- [{j.id}] confidence={j.confidence:.2f} claim={j.claim[:300]}\n"
@@ -109,6 +118,9 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 ## 还没验证的自我觉察（open / needs-evidence cards）
 {chr(10).join(card_lines) or "（无）"}
 
+## 我正在遵守的做法（自我协议）
+{chr(10).join(practice_lines) or "（无）"}
+
 {alarm_section}
 
 ## 这次清醒的对话
@@ -123,6 +135,8 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
   "open_loops": [{{"title": "...", "detail": "...", "due": null}}],
   "loop_updates": [{{"loop_id": "loop_...", "detail": "新的理由/进展", "due": null, "note": "为什么改"}}],
   "closed_loops": [{{"loop_id": "loop_...", "status": "done|dropped", "note": "为什么现在可以关闭"}}],
+  "practices": [{{"text": "以后遇到 X 时我先做 Y", "evidence_refs": ["evt_..."]}}],
+  "practice_updates": [{{"practice_id": "practice_...", "status": "dropped", "note": "为什么不再遵守它"}}],
   "next_intent": "下次醒来想做什么（一句）或 null",
   "self_edits": [{{"section": "我相信什么", "op": "append", "text": "要加入或替换的内容", "evidence_refs": ["evt_..."]}}],
   "accept_self_edit": false,
@@ -141,6 +155,8 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 - 只有 status=accepted 的卡才可以带 self_edit；system 会用该卡自己的 evidence_refs，所以 self_edit 里不用再填 evidence_refs。没有真的改变 SELF.md 就不带 self_edit。
 - loop_updates 只能引用上面「未闭合的事」里仍然 open 的 loop_id；只改 detail/due，不改标题，也不关闭；必须写 note。已经做完或决定不做就用 closed_loops。
 - closed_loops 只能引用上面「未闭合的事」里已经存在的 loop_id；status 只能是 done（做完了）或 dropped（决定不做了），并写一条 note 说明依据。今晚新提出的 open_loops 不能在同一轮被关闭。没做完就留 open，不要为了清空列表而关闭。
+- practices 是你给自己定的、跨 session 也要遵守的做法（“以后遇到 X，我先做 Y”），不是待办、不是立场、不是 SELF.md 的复述。最多 2 条；每条至少引用一个今晚之前真实发生过的 L1 事件（不要只引用本次日记）。没有真实经历支撑、只是觉得“应该这样”的，不要写。
+- practice_updates 只能引用上面「我正在遵守的做法」里仍然 active 的真实 practice_id；status 只能是 dropped，并写 note 说明为什么不再遵守。做法不能原地改写；要换一种做法就 drop 旧的，再写一条新的。drop 不是删除，原文和理由都留在 L1。
 - next_wake_minutes 只在上面允许时填；范围外或没有真实需要就填 null。"""
     return [
         {"role": "system", "content": SLEEP_SYSTEM},
@@ -253,6 +269,29 @@ def parse_sleep_output(text: str) -> SleepResult:
         if not loop_id or status not in {"done", "dropped"} or not note:
             continue
         closed_loops.append({"loop_id": loop_id, "status": status, "note": note})
+    practices: list[dict[str, Any]] = []
+    raw_practices = data.get("practices")
+    if isinstance(raw_practices, list):
+        for item in raw_practices:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "").strip()
+            refs = item.get("evidence_refs")
+            if not text or not isinstance(refs, list) or not refs:
+                continue
+            practices.append({"text": text, "evidence_refs": [str(ref) for ref in refs]})
+    practice_updates: list[dict[str, Any]] = []
+    raw_practice_updates = data.get("practice_updates")
+    if isinstance(raw_practice_updates, list):
+        for item in raw_practice_updates:
+            if not isinstance(item, dict):
+                continue
+            practice_id = str(item.get("practice_id") or "").strip()
+            status = str(item.get("status") or "").strip().lower()
+            note = str(item.get("note") or "").strip()
+            if not practice_id or status != "dropped" or not note:
+                continue
+            practice_updates.append({"practice_id": practice_id, "status": status, "note": note})
     self_edit = data.get("self_edit")
     if self_edit is not None:
         self_edit = str(self_edit).strip() or None
@@ -315,6 +354,8 @@ def parse_sleep_output(text: str) -> SleepResult:
         open_loops=loops,
         loop_updates=loop_updates,
         closed_loops=closed_loops,
+        practices=practices,
+        practice_updates=practice_updates,
         next_intent=(str(data.get("next_intent")).strip() if data.get("next_intent") else None),
         self_edit=self_edit,
         self_edits=self_edits,
@@ -449,6 +490,43 @@ def apply_sleep_result(
                 applied_closures += 1
         except ValueError:
             continue
+    # Practices are procedural commitments. They can only be declared from
+    # evidence that existed before this sleep, and they are never rewritten in
+    # place: dropping one records a reason and leaves the old text in L1.
+    applied_practices = 0
+    applied_practice_updates = 0
+    preexisting_practice_ids = {p.id for p in store.practices(status="active", limit=200)}
+    existing_practice_texts = {
+        _norm_practice(p.text) for p in store.practices(status="active", limit=200)
+    }
+    for item in result.practices[:2]:
+        text = str(item.get("text") or "").strip()
+        refs = [
+            str(ref)
+            for ref in item.get("evidence_refs", [])
+            if str(ref) != diary_event.id and store.ref_exists(str(ref))
+        ]
+        key = _norm_practice(text)
+        if not text or not refs or not key or key in existing_practice_texts:
+            continue
+        try:
+            store.add_practice(text, evidence_refs=refs, note="睡去时写下的自我协议")
+        except (ValueError, TypeError):
+            continue
+        existing_practice_texts.add(key)
+        applied_practices += 1
+    for item in result.practice_updates:
+        practice_id = str(item.get("practice_id") or "").strip()
+        status = str(item.get("status") or "").strip().lower()
+        note = str(item.get("note") or "").strip()
+        if practice_id not in preexisting_practice_ids or status != "dropped" or not note:
+            continue
+        try:
+            if store.update_practice(practice_id, status=status, note=note):
+                preexisting_practice_ids.discard(practice_id)
+                applied_practice_updates += 1
+        except (ValueError, TypeError):
+            continue
     applied_reviews = 0
     card_edits: list[dict[str, Any]] = []
     card_edit_ids: list[str] = []
@@ -560,6 +638,8 @@ def apply_sleep_result(
             "open_loops": applied_loops,
             "loop_updates": applied_updates,
             "closed_loops": applied_closures,
+            "practices": applied_practices,
+            "practice_updates": applied_practice_updates,
             "awareness_reviews": applied_reviews,
             "awareness_self_edits": awareness_self_edits,
             "alarm": alarm.id if alarm else None,
@@ -580,6 +660,8 @@ def apply_sleep_result(
         "open_loops": applied_loops,
         "loop_updates": applied_updates,
         "closed_loops": applied_closures,
+        "practices": applied_practices,
+        "practice_updates": applied_practice_updates,
         "awareness_reviews": applied_reviews,
         "awareness_self_edits": awareness_self_edits,
         "alarm": alarm.id if alarm else None,

@@ -252,6 +252,7 @@ def test_fish_tank_page_requires_token_and_speaks_html(running):
         assert 'id="beliefs"' in body and 'id="awareness"' in body
         assert 'id="self-history"' in body and 'id="stance"' in body
         assert 'id="diary"' in body and 'id="next-intent"' in body
+        assert 'id="practices"' in body and "她给自己定的做法" in body
 
         status, headers, _body = _request_raw(
             port, "GET", "/", headers={"Authorization": "Bearer s3cret"}

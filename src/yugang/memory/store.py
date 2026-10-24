@@ -22,6 +22,8 @@ from .models import (
     JudgmentReview,
     Message,
     OpenLoop,
+    Practice,
+    PracticeReview,
     RecallHit,
     SelfVersion,
     Stance,
@@ -38,6 +40,7 @@ KINDS = {
     "sleep",
     "reply",
     "commitment",
+    "practice",
     "self_diff",
     "awareness",
     "note",
@@ -826,6 +829,107 @@ class MemoryStore:
             (card_id,),
         ).fetchone()
         return row["status"] if row else "open"
+
+    # ---------------------------------------------------------------- practices
+
+    def add_practice(
+        self,
+        text: str,
+        *,
+        evidence_refs: Iterable[str],
+        note: str | None = None,
+        ts: str | None = None,
+    ) -> Practice:
+        """Record a self-binding rule she intends to follow across sessions.
+
+        The rule itself is declared in L1 first (kind="practice"), then the
+        read model row points at that declaration via source_event. Evidence
+        refs must already exist; a practice cannot be justified by itself.
+        """
+        if not text.strip():
+            raise ValueError("practice text must be non-empty")
+        refs = list(evidence_refs)
+        if not refs:
+            raise ValueError("a practice requires evidence refs")
+        for ref in refs:
+            if not self.ref_exists(ref):
+                raise ValueError(f"unknown practice evidence ref: {ref}")
+        when = ts or now_iso()
+        event = self.append_event(
+            "ai-observation",
+            "practice",
+            text.strip(),
+            meta={"note": note},
+            refs=refs,
+            ts=when,
+        )
+        pid = new_id("practice")
+        self.conn.execute(
+            "INSERT INTO practices(id, ts, text, status, evidence_refs, source_event, note, updated_at) "
+            "VALUES (?, ?, ?, 'active', ?, ?, ?, ?)",
+            (pid, when, text.strip(), canonical_json(refs), event.id, note, when),
+        )
+        row = self.conn.execute("SELECT * FROM practices WHERE id = ?", (pid,)).fetchone()
+        return Practice.from_row(row)
+
+    def get_practice(self, practice_id: str) -> Practice | None:
+        row = self.conn.execute("SELECT * FROM practices WHERE id = ?", (practice_id,)).fetchone()
+        return Practice.from_row(row) if row else None
+
+    def practices(self, *, status: str = "active", limit: int = 50) -> list[Practice]:
+        if status not in {"active", "dropped"}:
+            raise ValueError(f"unknown practice status: {status}")
+        rows = self.conn.execute(
+            "SELECT * FROM practices WHERE status = ? ORDER BY ts ASC, rowid ASC LIMIT ?",
+            (status, limit),
+        ).fetchall()
+        return [Practice.from_row(row) for row in rows]
+
+    def update_practice(
+        self,
+        practice_id: str,
+        *,
+        status: str = "dropped",
+        note: str | None = None,
+        ts: str | None = None,
+    ) -> bool:
+        """Drop an active practice, keeping its text and the reason in L1.
+
+        Practices are deliberately not editable in place: a changed rule is a
+        new practice with its own evidence. Otherwise an old commitment could
+        be silently rewritten to match present behaviour.
+        """
+        if status != "dropped":
+            raise ValueError("a practice can only be dropped, not reactivated or rewritten")
+        row = self.conn.execute("SELECT * FROM practices WHERE id = ?", (practice_id,)).fetchone()
+        if not row or row["status"] != "active":
+            return False
+        when = ts or now_iso()
+        self.conn.execute(
+            "UPDATE practices SET status = 'dropped', note = COALESCE(?, note), updated_at = ? WHERE id = ?",
+            (note, when, practice_id),
+        )
+        self.conn.execute(
+            "INSERT INTO practice_reviews(id, practice_id, ts, status, note, created_at) "
+            "VALUES (?, ?, ?, 'dropped', ?, ?)",
+            (new_id("preview"), practice_id, when, note, now_iso()),
+        )
+        self.append_event(
+            "ai-observation",
+            "action",
+            f"dropped practice: {str(row['text'])[:120]}",
+            meta={"practice_id": practice_id, "status": "dropped", "note": note},
+            refs=_loads(row["evidence_refs"], []),
+            ts=when,
+        )
+        return True
+
+    def practice_reviews(self, practice_id: str, *, limit: int = 50) -> list[PracticeReview]:
+        rows = self.conn.execute(
+            "SELECT * FROM practice_reviews WHERE practice_id = ? ORDER BY ts ASC, rowid ASC LIMIT ?",
+            (practice_id, limit),
+        ).fetchall()
+        return [PracticeReview.from_row(row) for row in rows]
 
     # -------------------------------------------------------------------- alarms
 

@@ -39,6 +39,7 @@ class WakeContext:
     recent: list[Event] = field(default_factory=list)
     stance: Any | None = None
     judgments: list[Any] = field(default_factory=list)
+    practices: list[Any] = field(default_factory=list)
     self_history: list[Any] = field(default_factory=list)
     body: dict[str, Any] | None = None
 
@@ -119,6 +120,7 @@ def build_wake_context(
     cards = reviewable_cards(store, 10)
     stance = store.current_stance()
     judgments = store.current_judgments(limit=6)
+    practices = store.practices(status="active", limit=50)
     self_history = store.self_history(limit=2)
     pending = store.pending_messages(limit=10)
     recent = list(reversed(store.events(limit=int(getattr(config, "recent_event_limit", 16)), order="desc")))
@@ -248,6 +250,16 @@ def build_wake_context(
     else:
         lines.append("（没有。）")
     lines.append("")
+    lines.append("## 我给自己定的做法（自我协议，仍有效）")
+    if practices:
+        for practice in practices:
+            lines.append(f"- [{practice.id}] {practice.text}")
+            if getattr(practice, "evidence_refs", None):
+                lines.append("  当初的依据：" + ", ".join(practice.evidence_refs[:6]))
+        lines.append("这些是我给自己定的做法，不是别人给我的命令；如果今天的证据说明它不再成立，可以在睡去时 drop。")
+    else:
+        lines.append("（还没有给自己定过跨 session 的做法。）")
+    lines.append("")
     lines.append("## 未闭合的事")
     if loops:
         for loop in loops:
@@ -288,6 +300,7 @@ def build_wake_context(
         recent=recent,
         stance=stance,
         judgments=judgments,
+        practices=practices,
         self_history=self_history,
         body=body,
     )

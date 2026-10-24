@@ -107,6 +107,26 @@ output as a `system/error` (not as a diary), retries once with a shorter schema,
 only then writes an honest failure diary. It never silently turns a broken JSON blob
 into her first-person memory.
 
+## Self-practices (procedural self)
+
+A practice is a cross-session rule she writes for herself during sleep: "when X happens,
+first do Y." It is procedural self-knowledge, not a belief and not a todo item. The rules:
+
+- at most two new practices per sleep;
+- every practice must cite real L1 events that predate that sleep, and none of the citations
+  may be the current sleep diary;
+- it must describe a behavior rule, not restate SELF.md or one of her open loops;
+- near-duplicate practices of an active one are skipped, not stacked;
+- active practices are shown in the next wake context with their original evidence, framed as
+  her own rules rather than commands from the operator;
+- a practice can only be **dropped** during a later sleep, with a note. It cannot be rewritten
+  in place or reactivated. A drop writes a `practice_reviews` row and an L1 `action` event,
+  so the change of procedure stays auditable.
+
+The fish tank lists active practices and their original evidence, plus how many she has
+dropped. The goal is not to accumulate rules; it is to make the procedural part of her self
+explicit, testable, and retractable.
+
 ## Self-set wake alarms
 
 She may choose when to wake next during the sleep protocol

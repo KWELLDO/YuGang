@@ -121,6 +121,11 @@ a { color:var(--accent); }
 </section>
 
 <section class="card">
+  <h2>她给自己定的做法 <span id="practice-count" class="muted"></span></h2>
+  <div id="practices"></div>
+</section>
+
+<section class="card">
   <h2>最近发生</h2>
   <div id="events" class="muted">—</div>
 </section>
@@ -231,6 +236,21 @@ function renderAwareness(cards) {
     box.append(d);
   }
 }
+function renderPractices(practices, stats) {
+  const box = $('practices'); box.replaceChildren();
+  const rows = (practices || []).slice(0, 8);
+  const dropped = (stats && stats.dropped) || 0;
+  $('practice-count').textContent = rows.length ? rows.length + ' 条仍有效' + (dropped ? '（已废弃 ' + dropped + ' 条）' : '') : '';
+  if (!rows.length) { box.append(el('div','muted','她还没有给自己定过跨 session 的做法。')); return; }
+  for (const p of rows) {
+    const d = el('div','item');
+    d.append(el('div','claim', p.text || ''));
+    const meta = el('div','meta');
+    meta.append(document.createTextNode('从 ' + fmt(p.ts) + ' 起 · 当初依据 ' + ((p.evidence_refs || []).length) + ' 条'));
+    d.append(meta);
+    box.append(d);
+  }
+}
 async function refresh() {
   try {
     const t = await api('/tank');
@@ -264,6 +284,7 @@ async function refresh() {
     renderLoops(t.open_loops);
     renderBeliefs(t.judgments);
     renderAwareness(t.awareness);
+    renderPractices(t.practices, t.practice_stats);
     renderChat(t.recent_events || []);
     const ev = (t.recent_events || []).slice(0, 10).map(e => fmt(e.ts) + '  ' + e.kind + '  ' + String(e.content || '').slice(0,90));
     $('events').replaceChildren(...(ev.length ? ev.map(x => el('div','',x)) : [el('div','muted','还没有事件。')]));

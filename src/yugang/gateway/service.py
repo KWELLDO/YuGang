@@ -896,6 +896,8 @@ class GatewayService:
             {**_jsonable(c), "status": self.store.card_status(c.id)}
             for c in self.store.awareness_cards(limit=10)
         ]
+        active_practices = self.store.practices(status="active", limit=50)
+        dropped_practices = self.store.practices(status="dropped", limit=200)
         return {
             "name": self.config.name,
             "status": self.status(),
@@ -915,6 +917,11 @@ class GatewayService:
             "open_loops": _jsonable(self.store.open_loops(limit=20)),
             "alarms": _jsonable(self.store.pending_alarms(limit=20)),
             "awareness": cards,
+            "practices": _jsonable(active_practices),
+            "practice_stats": {
+                "active": len(active_practices),
+                "dropped": len(dropped_practices),
+            },
             "recent_events": _jsonable(self.store.events(limit=30)),
             "judgments": judgments,
             "stats": self.store.stats(),

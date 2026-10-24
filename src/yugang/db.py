@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2  # v2 adds judgment_supersessions (additive; CREATE IF NOT EXISTS)
+SCHEMA_VERSION = 3  # v2 judgment lineage, v3 self-practices (both additive)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -135,6 +135,29 @@ CREATE TABLE IF NOT EXISTS open_loops (
 );
 CREATE INDEX IF NOT EXISTS idx_loops_status ON open_loops(status);
 
+CREATE TABLE IF NOT EXISTS practices (
+  id TEXT PRIMARY KEY,
+  ts TEXT NOT NULL,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  evidence_refs TEXT NOT NULL,
+  source_event TEXT,
+  note TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_practices_status ON practices(status, ts);
+
+CREATE TABLE IF NOT EXISTS practice_reviews (
+  id TEXT PRIMARY KEY,
+  practice_id TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  status TEXT NOT NULL,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (practice_id) REFERENCES practices(id)
+);
+CREATE INDEX IF NOT EXISTS idx_pr_practice ON practice_reviews(practice_id, ts);
+
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   channel TEXT NOT NULL,
@@ -218,6 +241,11 @@ CREATE TRIGGER IF NOT EXISTS awareness_cards_no_update BEFORE UPDATE ON awarenes
 BEGIN SELECT RAISE(ABORT, 'awareness_cards is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS awareness_cards_no_delete BEFORE DELETE ON awareness_cards
 BEGIN SELECT RAISE(ABORT, 'awareness_cards is append-only'); END;
+
+CREATE TRIGGER IF NOT EXISTS practice_reviews_no_update BEFORE UPDATE ON practice_reviews
+BEGIN SELECT RAISE(ABORT, 'practice_reviews is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS practice_reviews_no_delete BEFORE DELETE ON practice_reviews
+BEGIN SELECT RAISE(ABORT, 'practice_reviews is append-only'); END;
 
 CREATE TRIGGER IF NOT EXISTS budget_ledger_no_update BEFORE UPDATE ON budget_ledger
 BEGIN SELECT RAISE(ABORT, 'budget_ledger is append-only'); END;

@@ -254,6 +254,22 @@ def cmd_awareness_dedupe(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_practices(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = MemoryStore(cfg.db_path)
+    try:
+        if args.status == "all":
+            active = store.practices(status="active", limit=args.limit)
+            dropped = store.practices(status="dropped", limit=args.limit)
+            rows = {"active": active, "dropped": dropped}
+        else:
+            rows = store.practices(status=args.status, limit=args.limit)
+        _print_json({"ok": True, "status": args.status, "practices": rows})
+        return 0
+    finally:
+        store.close()
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     cfg = load_config(args)
     channels: list[Any] = []
@@ -478,6 +494,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("awareness-dedupe", help="合并同义觉察卡，重复不算新证据")
     p.add_argument("--threshold", type=float, default=0.9)
     p.set_defaults(func=cmd_awareness_dedupe)
+
+    p = sub.add_parser("practices", help="查看她给自己定的做法（自我协议）")
+    p.add_argument("--status", choices=["active", "dropped", "all"], default="active")
+    p.add_argument("--limit", type=int, default=50)
+    p.set_defaults(func=cmd_practices)
 
     p = sub.add_parser("serve", help="启动常驻网关")
     p.set_defaults(func=cmd_serve)

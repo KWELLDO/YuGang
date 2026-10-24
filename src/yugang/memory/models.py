@@ -189,6 +189,52 @@ class OpenLoop:
 
 
 @dataclass(frozen=True)
+class Practice:
+    id: str
+    ts: str
+    text: str
+    status: str
+    evidence_refs: tuple[str, ...]
+    source_event: str | None
+    note: str | None
+    updated_at: str
+
+    @classmethod
+    def from_row(cls, row: Any) -> "Practice":
+        return cls(
+            id=row["id"],
+            ts=row["ts"],
+            text=row["text"],
+            status=row["status"],
+            evidence_refs=tuple(_loads(row["evidence_refs"], [])),
+            source_event=row["source_event"],
+            note=row["note"],
+            updated_at=row["updated_at"],
+        )
+
+
+@dataclass(frozen=True)
+class PracticeReview:
+    id: str
+    practice_id: str
+    ts: str
+    status: str
+    note: str | None
+    created_at: str
+
+    @classmethod
+    def from_row(cls, row: Any) -> "PracticeReview":
+        return cls(
+            id=row["id"],
+            practice_id=row["practice_id"],
+            ts=row["ts"],
+            status=row["status"],
+            note=row["note"],
+            created_at=row["created_at"],
+        )
+
+
+@dataclass(frozen=True)
 class Message:
     id: str
     channel: str
