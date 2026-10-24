@@ -79,6 +79,34 @@ def test_sleep_creates_an_episode_backed_by_real_window_events(store, cfg):
     assert episode.event_ids[-1] == applied["diary_event"]
 
 
+def test_episode_does_not_reabsorb_the_previous_sleep_boundary(store, cfg):
+    first = apply_sleep_result(
+        store,
+        cfg,
+        SleepResult(diary="第一次睡去，整理材料。", parsed=True),
+        now=datetime(2026, 10, 25, 7, 0, tzinfo=timezone.utc),
+    )
+    evidence = store.append_event(
+        "human",
+        "message",
+        "这是第一次睡去之后的新消息。",
+        ts=datetime(2026, 10, 25, 7, 2, tzinfo=timezone.utc).isoformat(),
+    )
+    second = apply_sleep_result(
+        store,
+        cfg,
+        SleepResult(diary="第二次睡去，只整理这条消息。", parsed=True),
+        now=datetime(2026, 10, 25, 7, 5, tzinfo=timezone.utc),
+    )
+    episode = store.get_episode(second["episode"])
+    assert evidence.id in episode.event_ids
+    assert second["diary_event"] in episode.event_ids
+    # The previous window's sleep and diary are consolidation of that window,
+    # not material that happened during this one.
+    assert first["sleep_event"] not in episode.event_ids
+    assert first["diary_event"] not in episode.event_ids
+
+
 def test_sleep_creates_a_diary_index_when_the_model_omits_an_episode(store, cfg):
     applied = apply_sleep_result(
         store,

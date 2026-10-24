@@ -245,12 +245,21 @@ class MemoryStore:
         args.extend([limit, offset])
         return self._with_redactions([Event.from_row(r) for r in self.conn.execute(sql, args).fetchall()])
 
-    def events_between(self, start_ts: str, end_ts: str, *, limit: int = 500) -> list[Event]:
-        """Raw L1 material in a closed time window, oldest first."""
+    def events_between(
+        self, start_ts: str, end_ts: str, *, limit: int = 500, include_start: bool = True
+    ) -> list[Event]:
+        """Raw L1 material in a time window, oldest first.
+
+        Pass include_start=False when the start timestamp is the end of the
+        previous window: its sleep/diary events belong to that window, not the
+        next one.
+        """
         parse_ts(start_ts)
         parse_ts(end_ts)
+        comparator = ">=" if include_start else ">"
         rows = self.conn.execute(
-            "SELECT * FROM events WHERE ts >= ? AND ts <= ? ORDER BY ts ASC, rowid ASC LIMIT ?",
+            f"SELECT * FROM events WHERE ts {comparator} ? AND ts <= ? "
+            "ORDER BY ts ASC, rowid ASC LIMIT ?",
             (start_ts, end_ts, limit),
         ).fetchall()
         return self._with_redactions([Event.from_row(row) for row in rows])

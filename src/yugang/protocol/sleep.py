@@ -461,7 +461,9 @@ def apply_sleep_result(
     else:
         first = store.events(limit=1, order="asc")
         window_start = first[0].ts if first else when_iso
-    window_events = store.events_between(window_start, when_iso, limit=400)
+    window_events = store.events_between(
+        window_start, when_iso, limit=400, include_start=previous_sleep is None
+    )
     diary_event = store.append_event(
         "ai-observation",
         "diary",
