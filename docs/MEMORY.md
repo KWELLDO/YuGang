@@ -21,6 +21,24 @@ from the latest review. A new judgment can supersede an old one.
 A thin, recomputed snapshot. It is not hand-edited and not a persona prompt. Each snapshot
 records the L1/L2 refs it was based on.
 
+## Awareness cards
+
+An awareness card is a first-person hypothesis about herself, with a falsifier and real
+L1 evidence. It is not a scheduled interview and not a diary entry. Six triggers are
+defined (T1 prediction error, T2 contradiction, T3 repetition, T4 strong reaction,
+T5 external mirror, T6 broken promise).
+
+A card can be produced two ways: by an explicit awareness run (yugang awareness T1 ...),
+or inline during a live reply. For the inline path she writes an optional block at the end:
+
+    <awareness trigger="T5">{"observation":"...","hypothesis":"...","falsifier":"...","confidence":0.6}</awareness>
+
+The gateway strips the block from the visible reply, supplies only event ids that actually
+exist (the user message, her reply, the current wake), and stores the card. It never trusts
+model-supplied evidence ids. A malformed card is dropped with an audit note, not fabricated.
+Open cards are included in the next wake context so they can be tested by later experience;
+a card can be reviewed as accepted, rejected, or needs-evidence.
+
 ## Recall
 
 Hybrid: FTS5 (trigram for Chinese) + recency + source/kind weights. Reading a memory is

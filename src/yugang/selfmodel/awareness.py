@@ -13,6 +13,14 @@ TRIGGERS = {
     "T6": "承诺断裂：她说过要做的事没做，或做了没说过的事",
 }
 
+INLINE_AWARENESS_RULE = """\
+可选：如果你在这次回答中真的产生了一个「哦，原来我是这样的」的觉察，并且能指向具体证据，就在回答最后另起一行写：
+<awareness trigger="T1">{"observation":"我观察到……","hypothesis":"我原来……","falsifier":"如果……则此假设被推翻","confidence":0.6}</awareness>
+trigger 只能是 T1–T6。这个块不会显示给对方，会先作为待验证的觉察卡存进你的身体；没有真实觉察就不要写，也不要为了记录而制造觉察。"""
+
+_AWARENESS_BLOCK = re.compile(r"<awareness(?P<attrs>[^>]*)>(?P<body>.*?)</awareness>", re.IGNORECASE | re.DOTALL)
+_AWARENESS_TRIGGER = re.compile(r'trigger\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
+
 AWARENESS_SYSTEM = """你是大肥鱼的自我觉察过程，不是客服，也不是心理测评。
 你只根据给定的 L1/L2/SELF.md 证据说话。没有证据就不写卡。
 觉察卡不是人设散文：它必须包含一个可被未来证据推翻的假设（falsifier）。
@@ -100,6 +108,47 @@ def parse_awareness_output(text: str, default_trigger: str = "T1") -> dict[str, 
         "confidence": confidence,
         "proposed_self_diff": data.get("proposed_self_diff") or None,
     }
+
+
+def split_awareness_block(text: str) -> tuple[str, dict[str, Any] | None]:
+    """Strip an optional <awareness> block from a reply and parse it.
+
+    The block is hidden from the user even when it is malformed: it is an
+    internal protocol, not something to leak into the transcript.
+    """
+    raw = text or ""
+    match = _AWARENESS_BLOCK.search(raw)
+    if match is None:
+        return raw.strip(), None
+    body = match.group("body").strip()
+    start, end = body.find("{"), body.rfind("}")
+    data: dict[str, Any] | None = None
+    if 0 <= start < end:
+        try:
+            payload = json.loads(body[start : end + 1])
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            trigger_match = _AWARENESS_TRIGGER.search(match.group("attrs") or "")
+            trigger = trigger_match.group(1) if trigger_match else payload.get("trigger")
+            trigger = str(trigger or "T1").strip().upper()
+            if trigger not in TRIGGERS:
+                trigger = "T1"
+            if all(str(payload.get(key) or "").strip() for key in ("observation", "hypothesis", "falsifier")):
+                try:
+                    confidence = max(0.0, min(1.0, float(payload.get("confidence", 0.5))))
+                except (TypeError, ValueError):
+                    confidence = 0.5
+                data = {
+                    "trigger": trigger,
+                    "observation": str(payload["observation"]).strip(),
+                    "hypothesis": str(payload["hypothesis"]).strip(),
+                    "falsifier": str(payload["falsifier"]).strip(),
+                    "confidence": confidence,
+                    "proposed_self_diff": payload.get("proposed_self_diff") or None,
+                }
+    cleaned = _AWARENESS_BLOCK.sub("", raw).strip()
+    return cleaned, data
 
 
 def create_card(store: Any, data: dict[str, Any]) -> Any:

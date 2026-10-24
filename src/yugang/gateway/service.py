@@ -11,7 +11,13 @@ from zoneinfo import ZoneInfo
 from ..ids import day_key, now_iso, parse_ts, utcnow
 from ..protocol.sleep import SleepResult, apply_sleep_result, build_sleep_messages, parse_sleep_output
 from ..protocol.wake import build_messages, build_wake_context, morning_check_messages, record_wake
-from ..selfmodel.awareness import TRIGGERS, build_awareness_messages, create_card, parse_awareness_output
+from ..selfmodel.awareness import (
+    TRIGGERS,
+    build_awareness_messages,
+    create_card,
+    parse_awareness_output,
+    split_awareness_block,
+)
 from ..selfmodel.self_md import bootstrap_self
 from .budget import BudgetGuard
 from .channels.base import IncomingMessage
@@ -113,6 +119,7 @@ class GatewayService:
             meta=incoming.meta,
         )
         incoming.message_id = message.id
+        incoming.event_id = event.id
         if message.status == "processed" and isinstance(message.meta, dict) and message.meta.get("reply"):
             incoming.finish(str(message.meta["reply"]))
             return message
@@ -181,17 +188,25 @@ class GatewayService:
             self._fail(incoming, f"模型调用失败：{type(exc).__name__}: {exc}")
             return None
         self.budget.record_completion(completion, kind="chat", now=now)
-        text = (completion.text or "").strip()
+        text, awareness = split_awareness_block((completion.text or "").strip())
         if not text:
             self._fail(incoming, "模型返回了空回复")
             return None
         self.window.touch(now)
         self.window.transcript.append({"role": "user", "content": incoming.content})
         self.window.transcript.append({"role": "assistant", "content": text})
-        self._finalize(incoming, text, now=now)
+        self._finalize(incoming, text, now=now, awareness=awareness)
         return text
 
-    def _finalize(self, incoming: IncomingMessage, text: str, *, error: str | None = None, now: datetime | None = None) -> None:
+    def _finalize(
+        self,
+        incoming: IncomingMessage,
+        text: str,
+        *,
+        error: str | None = None,
+        now: datetime | None = None,
+        awareness: dict[str, Any] | None = None,
+    ) -> Any:
         now = now or self.now_fn()
         message_id = incoming.message_id
         if message_id:
@@ -206,7 +221,7 @@ class GatewayService:
             sender=self.config.name,
             meta={"reply_to": message_id, **meta},
         )
-        self.store.append_event(
+        event = self.store.append_event(
             "system" if error else "ai-observation",
             "error" if error else "reply",
             text,
@@ -216,6 +231,8 @@ class GatewayService:
             meta=meta,
             ts=now.isoformat(timespec="microseconds"),
         )
+        if awareness and not error:
+            self._record_inline_awareness(incoming, awareness, event)
         self.last_reply = text
         incoming.finish(text, error)
         channel = self._channel(incoming.channel)
@@ -224,6 +241,28 @@ class GatewayService:
                 channel.send(incoming.sender, text, meta={"subject": (incoming.meta or {}).get("subject")})
             except Exception:
                 pass
+        return event
+
+    def _record_inline_awareness(
+        self, incoming: IncomingMessage, data: dict[str, Any], reply_event: Any
+    ) -> None:
+        """Record a self-awareness card the reply itself proposed.
+
+        The model never chooses evidence ids; the gateway supplies only events
+        that actually exist in this exchange. A malformed card is dropped and
+        audited, never fabricated into L1.
+        """
+        refs = [ref for ref in (incoming.event_id, getattr(reply_event, "id", None), self._current_wake_id) if ref]
+        try:
+            create_card(self.store, {**data, "evidence_refs": refs})
+        except ValueError as exc:
+            self.store.append_event(
+                "system",
+                "note",
+                f"觉察卡未记录：{exc}",
+                channel=incoming.channel,
+                meta={"trigger": data.get("trigger")},
+            )
 
     def _fail(self, incoming: IncomingMessage, reason: str) -> None:
         now = self.now_fn()

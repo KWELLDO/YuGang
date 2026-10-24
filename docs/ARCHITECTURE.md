@@ -3,7 +3,7 @@
 ## Layers
 
 - **Memory core** (`src/yugang/memory`): SQLite, append-only events with hash chain, FTS5 recall, L2 judgments + reviews, L3 stance snapshots.
-- **Self model** (`src/yugang/selfmodel`): SELF.md parse/render/diff/commit; awareness cards.
+- **Self model** (`src/yugang/selfmodel`): SELF.md parse/render/diff/commit; awareness cards, including an optional inline awareness block in a live reply that the gateway strips, validates, and records.
 - **Protocols** (`src/yugang/protocol`): wake context/prompt; sleep consolidation prompt + parser + apply.
 - **Gateway** (`src/yugang/gateway`): always-on body, wake window state machine, budget guard, HTTP/email channels.
 - **Runtime** (`src/yugang/runtime`): model adapter interface; mock for tests; OpenAI-compatible adapter for deployment.

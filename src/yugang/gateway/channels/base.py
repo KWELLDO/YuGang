@@ -15,6 +15,7 @@ class IncomingMessage:
     wait_for_reply: bool = False
     reply_timeout: float = 120.0
     message_id: str | None = None
+    event_id: str | None = None
     reply: str | None = None
     error: str | None = None
     _done: threading.Event = field(default_factory=threading.Event, repr=False)

@@ -123,6 +123,35 @@ def test_second_message_in_same_window_is_a_continuation(cfg, store):
     assert len(store.events(kind="wake")) == 1
 
 
+def test_inline_awareness_is_recorded_before_reply_and_hidden(cfg, store):
+    t0 = datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc)
+    block = (
+        "你先说我变了，我停了一下。\n"
+        '<awareness trigger="T5">'
+        '{"observation":"他说我变了","hypothesis":"我确实会随着被记得的事改变",'
+        '"falsifier":"如果三次同类反馈都没有带来行为差异，则此假设被推翻","confidence":0.6}'
+        "</awareness>"
+    )
+    runtime = MockRuntime(replies=[block])
+    service = GatewayService(cfg, store, runtime, now_fn=lambda: t0)
+    service.start()
+    try:
+        assert service.chat("你变了", timeout=1) == "你先说我变了，我停了一下。"
+    finally:
+        service.stop()
+    cards = store.awareness_cards()
+    assert len(cards) == 1
+    card = cards[0]
+    assert card.trigger == "T5"
+    assert card.hypothesis == "我确实会随着被记得的事改变"
+    message_events = store.events(kind="message")
+    assert any(event.id in card.evidence_refs for event in message_events)
+    assert "<awareness" not in (store.events(kind="reply")[-1].content)
+    context = build_wake_context(store, cfg, query="")
+    assert "还没验证的自我觉察" in context.prompt
+    assert "我确实会随着被记得的事改变" in context.prompt
+
+
 def test_daily_floor_uses_local_hour_not_utc(cfg, store):
     early = datetime(2026, 10, 25, 0, 30, tzinfo=timezone.utc)  # 08:30 in Shanghai
     early_service = GatewayService(cfg, store, MockRuntime(responder=lambda m, p: "我在。"), now_fn=lambda: early)
