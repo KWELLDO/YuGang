@@ -128,6 +128,23 @@ def test_parse_sleep_output_drops_invalid_awareness_reviews():
     assert result.awareness_reviews[1]["status"] == "open"
 
 
+def test_parse_sleep_output_keeps_valid_judgment_reviews_only():
+    payload = {
+        "diary": "今天复核了一条旧判断。",
+        "judgment_reviews": [
+            {"judgment_id": "judg_real", "verdict": "supported", "evidence_refs": ["evt_real"], "note": "支持"},
+            {"judgment_id": "judg_real", "verdict": "maybe", "evidence_refs": ["evt_real"], "note": "非法状态"},
+            {"judgment_id": "judg_real", "verdict": "refuted", "evidence_refs": [], "note": "没有证据"},
+            {"judgment_id": "", "verdict": "supported", "evidence_refs": ["evt_real"], "note": "没有 id"},
+        ],
+    }
+    result = parse_sleep_output(json.dumps(payload, ensure_ascii=False))
+    assert len(result.judgment_reviews) == 1
+    assert result.judgment_reviews[0]["judgment_id"] == "judg_real"
+    assert result.judgment_reviews[0]["verdict"] == "supported"
+    assert result.judgment_reviews[0]["evidence_refs"] == ["evt_real"]
+
+
 def test_parse_sleep_output_accepts_add_as_append_alias():
     payload = {
         "diary": "她写的 op 是 add，而不是 append。",

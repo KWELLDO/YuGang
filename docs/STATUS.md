@@ -98,18 +98,27 @@
 - 重启后 `/health` 返回 `{"ok": true, "awake": false, "paused": false, "worker_alive": true, "last_tick_age_seconds": ...}`；当时 events=102、budget 0.414662/5 元、channels=[http,email]。
 - 新增测试 `test_health_is_not_ok_when_the_worker_was_never_started`（503），并强化既有 HTTP 健康断言；全量 55 passed。
 
-### 鱼缸页展示 L2 与觉察卡（03:34 CST，代码完成）
+### 鱼缸页展示 L2 与觉察卡（03:34 CST，已部署）
 
 - `/tank` 现在给每条 L2 判断和每张觉察卡附上最新状态（judgment 的 open/supported/refuted/needs-evidence；card 的 open/accepted/rejected/needs-evidence），不改变任何存储语义。
 - 鱼缸页新增「她相信什么」和「还没验证的觉察」两段：L2 显示 claim、置信度、证据条数和 falsifier；觉察卡只显示仍为 open 的卡片，显示 trigger、置信度、证据条数和 falsifier。被推翻的判断不展示，避免把历史判断误读成当前立场。
 - 新增测试 test_tank_includes_judgment_and_card_status 与页面结构断言；全量 **56 passed**。
+- 已用改动路径 tar 部署并 restart；云端 `/tank` 返回带 status 的 judgments/cards，页面 HTML 同时含 `id="beliefs"` 与 `id="awareness"`；当时 events=102、awake=false、budget 0.414662/5 元。
 
-### 重复觉察不新开卡、不算新确认（03:42 CST，代码完成）
+### 重复觉察不新开卡、不算新确认（03:42 CST，已部署）
 
 - 触发点：云端 `/tank` 里出现多张假设几乎相同的觉察卡（例如 `card_..._48f025` 与已接受的 `card_..._75f3ef`），还有重复的 L2 claim；这会把“重复看到”误读成“多次独立确认”。
 - `create_card` 现在先按归一化 hypothesis 查重（相似度 >= 0.85，且否定词不同的句子不算相似），命中时不新建卡，只在原卡上写一条 `open`/当前状态的 review note「重复觉察未新建：…（证据 …）」，并保留原状态。
 - 新增 `yugang awareness-dedupe [--threshold 0.9]`：把历史上的近义卡合并成一张 canonical 卡（优先 accepted，其次 open，其次最早），其余标为 `merged` 并指向 canonical；被合并的卡不再进入 open 卡列表，也不作为新证据。
 - 测试：`test_repeated_hypothesis_does_not_create_a_second_card`、`test_similar_card_never_merges_a_flipped_negation`、`test_merge_similar_cards_prefers_accepted_and_marks_the_rest`；全量 **59 passed**。
+- 已部署并 restart；云端运行 `yugang awareness-dedupe` 返回 `{"ok": true, "merged": [], "count": 0}`：现有两张近似卡因否定词守卫/阈值未被自动合并，没有为了“看起来干净”而强行改数据。
+
+### 睡去复核旧 L2 判断（03:48 CST，代码完成）
+
+- 睡去 prompt 现在列出「还没复核的判断（open / needs-evidence L2）」：每条带 judgment_id、claim、falsifier、原证据和置信度；`judgment_reviews` 允许 `supported` / `refuted` / `needs-evidence`。
+- 只有本次睡去之前就已存在的判断可以被复核；同一轮新生成的判断不能自己确认自己。每条复核必须引用至少一个真实 L1 事件，且不能只引用本次生成的日记。
+- `supported` 会像手动复核一样增加 `event_confirmations`，从而小幅提高该事件在未来 recall 中的权重；`needs-evidence` 不会把判断永久搁置，它仍出现在下一次睡去 prompt 里。
+- 新增测试 `test_sleep_prompt_lists_open_judgments_for_review`、`test_sleep_reviews_an_open_judgment_but_not_a_judgment_created_tonight`、`test_parse_sleep_output_keeps_valid_judgment_reviews_only`、`test_needs_evidence_card_stays_reviewable`；全量 **63 passed**。
 
 ## 进行中 / 下一步
 

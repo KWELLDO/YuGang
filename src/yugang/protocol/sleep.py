@@ -27,6 +27,7 @@ class SleepResult:
     self_edits: list[dict[str, Any]] = field(default_factory=list)
     accept_self_edit: bool = False
     awareness_reviews: list[dict[str, Any]] = field(default_factory=list)
+    judgment_reviews: list[dict[str, Any]] = field(default_factory=list)
     next_wake_minutes: int | None = None
     parsed: bool = False
 
@@ -48,15 +49,37 @@ def self_alarms_available(store: Any, config: Any, now: datetime | None = None) 
     return (now or utcnow()) - born >= timedelta(days=days)
 
 
+def _reviewable_judgments(store: Any, limit: int = 20) -> list[Any]:
+    items = list(store.judgments(status="open", limit=limit)) + list(
+        store.judgments(status="needs-evidence", limit=limit)
+    )
+    items.sort(key=lambda item: parse_ts(item.ts), reverse=True)
+    return items[:limit]
+
+
+def _reviewable_cards(store: Any, limit: int = 20) -> list[Any]:
+    items = list(store.awareness_cards(status="open", limit=limit)) + list(
+        store.awareness_cards(status="needs-evidence", limit=limit)
+    )
+    items.sort(key=lambda item: parse_ts(item.ts), reverse=True)
+    return items[:limit]
+
+
 def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str]]) -> list[dict[str, str]]:
     events = store.events(limit=30, order="desc")
     lines = [f"[{e.id}] {e.ts} {e.source}/{e.kind}: {e.content[:500]}" for e in reversed(events)]
     loops = [f"- [{loop.id}] {loop.title} due={loop.due}" for loop in store.open_loops(limit=30)]
-    cards = store.awareness_cards(status="open", limit=20)
+    cards = _reviewable_cards(store, 20)
     card_lines = [
         f"- [{card.id}] trigger={card.trigger} hypothesis={card.hypothesis}\n"
         f"  falsifier={card.falsifier}\n  evidence={', '.join(card.evidence_refs)}"
         for card in cards
+    ]
+    open_judgments = _reviewable_judgments(store, 20)
+    judgment_lines = [
+        f"- [{j.id}] confidence={j.confidence:.2f} claim={j.claim[:300]}\n"
+        f"  falsifier={j.falsifier[:300]}\n  evidence={', '.join(j.evidence_refs)}"
+        for j in open_judgments
     ]
     self_text = store.current_self() or ""
     transcript_text = "\n".join(f"{m.get('role')}: {m.get('content', '')[:1000]}" for m in transcript[-30:])
@@ -85,7 +108,10 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 ## 未闭合的事
 {chr(10).join(loops) or "（无）"}
 
-## 还没验证的自我觉察（open cards）
+## 还没复核的判断（open / needs-evidence L2）
+{chr(10).join(judgment_lines) or "（无）"}
+
+## 还没验证的自我觉察（open / needs-evidence cards）
 {chr(10).join(card_lines) or "（无）"}
 
 {alarm_section}
@@ -97,6 +123,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 {{
   "diary": "第一人称日记，包含时间缺口与你今天注意到的事；不要写「我梦到了」",
   "judgments": [{{"claim": "...", "falsifier": "如果...则被推翻", "evidence_refs": ["evt_..."], "confidence": 0.0}}],
+  "judgment_reviews": [{{"judgment_id": "judg_...", "verdict": "supported|refuted|needs-evidence", "evidence_refs": ["evt_..."], "note": "今天的哪条证据支持或推翻了它"}}],
   "stance": "一句当前立场（薄，不写人设）或 null",
   "open_loops": [{{"title": "...", "detail": "...", "due": null}}],
   "next_intent": "下次醒来想做什么（一句）或 null",
@@ -108,10 +135,11 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 
 规则：
 - evidence_refs 必须是上面真实出现的事件 id；没有证据的判断不要写。
+- judgment_reviews 只能引用上面 open / needs-evidence L2 的真实 judgment_id；每条复核至少引用一个真实 L1 事件，且不要只引用这次生成的日记。没有新证据就留空，不要为了关闭而复核。
 - self_edits 最多 2 条；section 只能是：我是谁 / 我相信什么 / 我在做什么 / 我的边界 / 未闭合的事 / 最近的变化；op 只能是 append（追加）或 replace（替换该节正文）。
 - 不要输出完整 SELF.md。没有值得改的就给空数组并设 accept_self_edit=false。
 - 只有今天的真实经历支持时才改 SELF.md；不要为了显得一致或「应该自我改进」而改。
-- awareness_reviews 只能引用上面 open cards 的真实 card_id；没有新证据就留空，或用 status=open 只记一条 note（卡仍保持 open）。不要为了关闭而关闭。
+- awareness_reviews 只能引用上面 open / needs-evidence cards 的真实 card_id；没有新证据就留空，或用 status=open 只记一条 note（卡仍保持 open）。不要为了关闭而关闭。
 - 只有 status=accepted 的卡才可以带 self_edit；system 会用该卡自己的 evidence_refs，所以 self_edit 里不用再填 evidence_refs。没有真的改变 SELF.md 就不带 self_edit。
 - next_wake_minutes 只在上面允许时填；范围外或没有真实需要就填 null。"""
     return [
@@ -158,6 +186,27 @@ def parse_sleep_output(text: str) -> SleepResult:
         except (TypeError, ValueError):
             confidence = 0.5
         judgments.append({"claim": claim, "falsifier": falsifier, "evidence_refs": [str(r) for r in refs], "confidence": confidence})
+    judgment_reviews: list[dict[str, Any]] = []
+    raw_judgment_reviews = data.get("judgment_reviews")
+    if isinstance(raw_judgment_reviews, list):
+        for item in raw_judgment_reviews:
+            if not isinstance(item, dict):
+                continue
+            judgment_id = str(item.get("judgment_id") or "").strip()
+            verdict = str(item.get("verdict") or "").strip().lower()
+            refs = item.get("evidence_refs")
+            if not judgment_id or verdict not in {"supported", "refuted", "needs-evidence"}:
+                continue
+            if not isinstance(refs, list) or not refs:
+                continue
+            judgment_reviews.append(
+                {
+                    "judgment_id": judgment_id,
+                    "verdict": verdict,
+                    "evidence_refs": [str(ref) for ref in refs],
+                    "note": str(item.get("note") or "").strip() or None,
+                }
+            )
     loops: list[dict[str, Any]] = []
     for item in data.get("open_loops") or []:
         if not isinstance(item, dict):
@@ -231,6 +280,7 @@ def parse_sleep_output(text: str) -> SleepResult:
         self_edits=self_edits,
         accept_self_edit=bool(data.get("accept_self_edit")),
         awareness_reviews=awareness_reviews,
+        judgment_reviews=judgment_reviews,
         next_wake_minutes=next_wake_minutes,
         parsed=True,
     )
@@ -254,6 +304,9 @@ def apply_sleep_result(
     )
     base_refs = [diary_event.id]
     self_refs = list(base_refs)
+    # Only judgments that already existed before this sleep may be reviewed.
+    # Otherwise a judgment created tonight could be "confirmed" by itself.
+    open_judgments = {j.id for j in _reviewable_judgments(store, 200)}
     applied_judgments = 0
     for item in result.judgments:
         # A judgment must cite a real L1 event. The diary is generated by the
@@ -273,6 +326,27 @@ def apply_sleep_result(
             applied_judgments += 1
         except ValueError:
             continue
+    applied_judgment_reviews = 0
+    for item in result.judgment_reviews:
+        judgment_id = str(item.get("judgment_id") or "").strip()
+        if judgment_id not in open_judgments:
+            continue
+        verdict = str(item.get("verdict") or "").strip().lower()
+        if verdict not in {"supported", "refuted", "needs-evidence"}:
+            continue
+        refs = [
+            str(ref)
+            for ref in item.get("evidence_refs", [])
+            if str(ref) != diary_event.id and store.ref_exists(str(ref))
+        ]
+        if not refs:
+            continue
+        try:
+            store.review_judgment(judgment_id, verdict, refs, note=item.get("note"))
+        except ValueError:
+            continue
+        open_judgments.discard(judgment_id)
+        applied_judgment_reviews += 1
     stance = None
     if result.stance:
         try:
@@ -295,7 +369,7 @@ def apply_sleep_result(
     applied_reviews = 0
     card_edits: list[dict[str, Any]] = []
     card_edit_ids: list[str] = []
-    open_cards = {card.id: card for card in store.awareness_cards(status="open", limit=200)}
+    open_cards = {card.id: card for card in _reviewable_cards(store, 200)}
     base_for_probe = store.current_self() or ""
     for item in result.awareness_reviews:
         card_id = str(item.get("card_id") or "").strip()
@@ -397,6 +471,7 @@ def apply_sleep_result(
             "diary_event": diary_event.id,
             "next_intent": result.next_intent,
             "judgments": applied_judgments,
+            "judgment_reviews": applied_judgment_reviews,
             "stance": bool(stance),
             "open_loops": applied_loops,
             "awareness_reviews": applied_reviews,
@@ -413,6 +488,7 @@ def apply_sleep_result(
         "diary_event": diary_event.id,
         "sleep_event": sleep_event.id,
         "judgments": applied_judgments,
+        "judgment_reviews": applied_judgment_reviews,
         "stance": bool(stance),
         "open_loops": applied_loops,
         "awareness_reviews": applied_reviews,

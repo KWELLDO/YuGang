@@ -171,14 +171,14 @@ function renderBeliefs(judgments) {
 }
 function renderAwareness(cards) {
   const box = $('awareness'); box.replaceChildren();
-  const rows = (cards || []).filter(c => c.status === 'open').slice(0, 6);
+  const rows = (cards || []).filter(c => c.status === 'open' || c.status === 'needs-evidence').slice(0, 6);
   $('awareness-count').textContent = rows.length ? rows.length + ' 张待验证' : '';
   if (!rows.length) { box.append(el('div','muted','目前没有还没验证的自我觉察。')); return; }
   for (const c of rows) {
     const d = el('div','item');
     d.append(el('div','claim', c.observation || c.hypothesis || ''));
     const meta = el('div','meta');
-    meta.append(tag(c.trigger || '觉察', true));
+    meta.append(tag(c.status === 'needs-evidence' ? '需更多证据' : (c.trigger || '觉察'), c.status === 'open'));
     meta.append(document.createTextNode('置信 ' + (c.confidence ?? '?') + ' · 证据 ' + ((c.evidence_refs || []).length) + ' 条'));
     d.append(meta);
     if (c.falsifier) d.append(el('div','falsifier', '会被什么推翻：' + c.falsifier));

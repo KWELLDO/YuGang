@@ -99,9 +99,12 @@ It reads `YUGANG_HTTP_TOKEN` from the host-side root-only env file and never exp
 ## Fish tank UI
 
 The gateway also serves a mobile-first read/write page at `/`. It shows whether she is
-awake or asleep, the last sleep, recent conversation, SELF.md, open loops, awareness
-cards, recent events and budget. The message box calls the same `POST /message` path, so
-sending a message wakes her even while she is asleep.
+awake or asleep, the last sleep, recent conversation, SELF.md, the L2 judgments she still
+holds (with their falsifiers), open awareness cards, open loops, recent events and budget.
+Repeated awareness hypotheses are not shown as separate confirmations; `yugang
+awareness-dedupe` can merge historical near-duplicates into one canonical card. The message
+box calls the same `POST /message` path, so sending a message wakes her even while she is
+asleep.
 
 With the SSH tunnel above open, visit:
 
@@ -187,8 +190,17 @@ ls -lh /home/dafeiyu/.yugang/backups/
 
 To restore, stop the gateway first, replace `/home/dafeiyu/.yugang/yugang.db` with the
 snapshot (and `SELF.md` if needed), `chown dafeiyu:dafeiyu`, then start the gateway and check
-`/health` and `/status` (`chain_ok` must be true). Backups contain her memories; keep the
-directory private.
+`/health`, `/status`, and the hash chain with `yugang verify` (or the latest backup
+manifest's `chain_ok`). Backups contain her memories; keep the directory private.
+
+To consolidate historical awareness cards that say almost the same thing:
+
+```bash
+sudo -u dafeiyu env PYTHONPATH=/home/dafeiyu/yugang/src \
+  /usr/bin/python3 -m yugang --home /home/dafeiyu/.yugang awareness-dedupe --threshold 0.9
+```
+
+It never merges a hypothesis with a flipped negation, and prints the merged card ids as JSON.
 
 ## DSH operator console
 

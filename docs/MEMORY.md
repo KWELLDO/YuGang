@@ -16,6 +16,13 @@ A judgment is a claim plus a falsifier plus evidence refs. It is immutable. Revi
 (supported / refuted / needs-evidence) are appended separately; current status is derived
 from the latest review. A new judgment can supersede an old one.
 
+Sleep is where old judgments are re-read. The sleep prompt lists judgments whose latest
+status is `open` or `needs-evidence`, and she may review them with real L1 refs. A review
+of a judgment created in the same sleep is rejected (a claim cannot confirm itself), and
+the freshly written diary is not accepted as the only evidence. A `supported` review
+increments `event_confirmations` for the cited L1 events; a `needs-evidence` review keeps
+the judgment in the next sleep prompt instead of parking it forever.
+
 ## L3 — current stance
 
 A thin, recomputed snapshot. It is not hand-edited and not a persona prompt. Each snapshot
@@ -37,7 +44,9 @@ The gateway strips the block from the visible reply, supplies only event ids tha
 exist (the user message, her reply, the current wake), and stores the card. It never trusts
 model-supplied evidence ids. A malformed card is dropped with an audit note, not fabricated.
 Open cards are included in the next wake context so they can be tested by later experience;
-a card can be reviewed as accepted, rejected, or needs-evidence.
+a card can be reviewed as accepted, rejected, or needs-evidence. A `needs-evidence` card
+stays in the next sleep prompt (and on the tank page) until it is accepted, rejected, or
+merged — it is not silently parked.
 
 A repeated hypothesis does not become a second card or a second confirmation. When a new
 inline or explicit card's hypothesis is near-identical to an existing card (normalized,

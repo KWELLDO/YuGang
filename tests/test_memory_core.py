@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from yugang.config import DEFAULT_SELF_TEMPLATE
-from yugang.protocol.sleep import SleepResult, apply_sleep_result
+from yugang.protocol.sleep import SleepResult, apply_sleep_result, build_sleep_messages
 from yugang.selfmodel.awareness import create_card, hypothesis_similar, merge_similar_cards
 from yugang.selfmodel.self_md import get_section, validate_self
 
@@ -280,6 +280,75 @@ def test_sleep_does_not_duplicate_an_open_loop(store, cfg):
     assert "新的一件事" in titles
 
 
+def test_sleep_prompt_lists_open_judgments_for_review(store, cfg):
+    evidence = store.append_event("human", "message", "今天又说了一次同样的话")
+    judgment = store.add_judgment(
+        "我会把重复出现当成需要复核的信号",
+        "如果下一次重复出现时我没有任何复核动作，则被削弱",
+        [evidence.id],
+        0.5,
+        trigger="test",
+    )
+    prompt = build_sleep_messages(store, cfg, [])[-1]["content"]
+    assert "## 还没复核的判断（open / needs-evidence L2）" in prompt
+    assert judgment.id in prompt
+    assert "如果下一次重复出现时我没有任何复核动作" in prompt
+
+    store.review_judgment(judgment.id, "refuted", [evidence.id], note="后来没有复核")
+    prompt_after = build_sleep_messages(store, cfg, [])[-1]["content"]
+    assert judgment.id not in prompt_after
+
+    still_open = store.add_judgment(
+        "仍然缺少证据的判断",
+        "如果下一次醒来仍没有新材料，则继续缺证据",
+        [evidence.id],
+        0.4,
+        trigger="test",
+    )
+    store.review_judgment(still_open.id, "needs-evidence", [evidence.id], note="还需要更多实例")
+    prompt_needs = build_sleep_messages(store, cfg, [])[-1]["content"]
+    assert still_open.id in prompt_needs
+
+
+def test_sleep_reviews_an_open_judgment_but_not_a_judgment_created_tonight(store, cfg):
+    old_evidence = store.append_event("human", "message", "上次说过的那个模式又出现了")
+    old = store.add_judgment(
+        "这个模式会重复出现",
+        "如果连续三次都不再出现，则被削弱",
+        [old_evidence.id],
+        0.5,
+        trigger="test",
+    )
+    new_evidence = store.append_event("human", "message", "这次我确实又看到了同一个模式")
+    result = SleepResult(
+        diary="今天复核了一条旧判断，也记下了一条新判断。",
+        judgments=[
+            {
+                "claim": "今晚新产生的判断",
+                "falsifier": "如果它没有被任何后续材料支持，则被削弱",
+                "evidence_refs": [new_evidence.id],
+                "confidence": 0.5,
+            }
+        ],
+        judgment_reviews=[
+            {"judgment_id": old.id, "verdict": "supported", "evidence_refs": [new_evidence.id], "note": "这次又看到同一模式。"},
+            {"judgment_id": "judg_fake", "verdict": "supported", "evidence_refs": [new_evidence.id], "note": "不存在的判断不应被应用。"},
+        ],
+        parsed=True,
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    assert applied["judgments"] == 1
+    assert applied["judgment_reviews"] == 1
+    assert store.judgment_status(old.id) == "supported"
+
+    new_judgment = next(j for j in store.judgments() if j.id != old.id)
+    assert store.judgment_status(new_judgment.id) == "open"
+    row = store.conn.execute(
+        "SELECT confirmations FROM event_confirmations WHERE event_id = ?", (new_evidence.id,)
+    ).fetchone()
+    assert row["confirmations"] == 1
+
+
 def test_sleep_reviews_open_awareness_cards_once(store, cfg):
     evidence = store.append_event("human", "message", "你刚才自己说出了那个模式")
     card = create_card(
@@ -377,6 +446,25 @@ def test_sleep_can_note_a_card_without_closing_it(store, cfg):
     assert applied["awareness_reviews"] == 1
     assert store.card_status(card.id) == "open"
     assert any(c.id == card.id for c in store.awareness_cards(status="open"))
+
+
+def test_needs_evidence_card_stays_reviewable(store, cfg):
+    evidence = store.append_event("human", "message", "这件事只发生过一次")
+    card = create_card(
+        store,
+        {
+            "trigger": "T1",
+            "observation": "只有一次观察。",
+            "hypothesis": "我还不能确定这是一个模式。",
+            "falsifier": "如果第二次出现时我仍然这样，则更可信。",
+            "evidence_refs": [evidence.id],
+            "confidence": 0.3,
+        },
+    )
+    store.review_awareness(card.id, "needs-evidence", note="需要第二次实例")
+    prompt = build_sleep_messages(store, cfg, [])[-1]["content"]
+    assert "## 还没验证的自我觉察（open / needs-evidence cards）" in prompt
+    assert card.id in prompt
 
 
 def test_duplicate_external_message_is_idempotent(store):
