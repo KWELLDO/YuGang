@@ -11,7 +11,15 @@ if ! systemctl is-active --quiet yugang.service; then
     exit 0
 fi
 
-if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null 2>&1; then
+if ! body=$(curl -fsS --max-time 5 "$HEALTH_URL" 2>/dev/null); then
+    logger -t yugang-healthcheck "health check failed; restarting yugang.service"
+else
+    # Degraded means the process is alive but at least one channel is failing
+    # (for example IMAP login). Restarting cannot fix credentials and would
+    # loop every two minutes, so leave it running and make it visible.
+    if printf '%s' "$body" | grep -q '"degraded": *true'; then
+        logger -t yugang-healthcheck "gateway is degraded but alive: $body"
+    fi
     exit 0
 fi
 

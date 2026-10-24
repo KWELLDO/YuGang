@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 from yugang.config import EmailConfig
 from yugang.gateway.channels.email import EmailChannel, parse_email_bytes
@@ -327,3 +328,22 @@ def test_parse_sleep_output_accepts_next_wake_minutes():
     assert result2.next_wake_minutes is None
     result3 = parse_sleep_output(json.dumps({"diary": "非法。", "next_wake_minutes": -5}))
     assert result3.next_wake_minutes is None
+
+def test_email_health_reports_a_dead_poller_thread():
+    email_config = EmailConfig(
+        enabled=True,
+        imap_host="imap.example.com",
+        smtp_host="smtp.example.com",
+        username="ayu@example.com",
+        allow_senders=["kwelldo@example.com"],
+    )
+    channel = EmailChannel(email_config)
+    channel._started = True
+    dead = threading.Thread(target=lambda: None, name="dead-poller")
+    dead.start()
+    dead.join()
+    channel._thread = dead
+    health = channel.health()
+    assert health["healthy"] is False
+    assert health["thread_alive"] is False
+    assert "poller thread" in health["last_error"]

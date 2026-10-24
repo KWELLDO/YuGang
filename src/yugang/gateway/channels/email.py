@@ -71,6 +71,7 @@ class EmailChannel:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._health_lock = threading.Lock()
+        self._started = False
         self._last_poll_at: str | None = None
         self._last_success_at: str | None = None
         self._last_error: str | None = None
@@ -86,9 +87,11 @@ class EmailChannel:
         self._stop.clear()
         self._thread = threading.Thread(target=self._loop, name="yugang-email", daemon=True)
         self._thread.start()
+        self._started = True
 
     def stop(self) -> None:
         self._stop.set()
+        self._started = False
         if self._thread is not None:
             self._thread.join(timeout=5)
             self._thread = None
@@ -124,13 +127,27 @@ class EmailChannel:
 
     def health(self) -> dict[str, Any]:
         with self._health_lock:
+            thread_alive = bool(self._thread is not None and self._thread.is_alive())
+            if not self._started:
+                healthy = None if self._last_poll_at is None else self._consecutive_failures == 0
+                last_error = self._last_error
+            elif not thread_alive:
+                healthy = False
+                last_error = self._last_error or "email poller thread is not alive"
+            elif self._last_poll_at is None:
+                healthy = None
+                last_error = self._last_error
+            else:
+                healthy = self._consecutive_failures == 0
+                last_error = self._last_error
             return {
                 "name": self.name,
-                "healthy": None if self._last_poll_at is None else self._consecutive_failures == 0,
+                "healthy": healthy,
+                "thread_alive": thread_alive,
                 "last_poll_at": self._last_poll_at,
                 "last_success_at": self._last_success_at,
                 "consecutive_failures": self._consecutive_failures,
-                "last_error": self._last_error,
+                "last_error": last_error,
             }
 
     def _unseen_numbers(self, imap: Any) -> list[bytes]:
