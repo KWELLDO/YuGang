@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 01:31 CST（Asia/Shanghai）
+更新时间：2026-10-25 01:46 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -8,13 +8,15 @@
 - 代码：`/home/dafeiyu/yugang`
 - 身体/记忆：`/home/dafeiyu/.yugang`（SQLite L1/L2/L3、SELF.md、日志）
 - 服务：`yugang.service`，`Restart=always`，仅监听 `127.0.0.1:3198`。
+- 运维控制台：`dafeiyu-dsh.service`，独立 `DSH_HOME=/home/dafeiyu/.dsh`，仅监听 `127.0.0.1:3199`；token 由 wrapper 写入 `/home/dafeiyu/.dsh/web-url`（0600）。它不是她的第二人格，也不是她的推理运行时。
+- 每日备份：`yugang-backup.timer`（04:15）生成 SQLite 一致性快照 + SELF.md + manifest，保留 14 天。
 - 密钥：`/etc/dafeiyu-dsh.env`（root:root 0600），不进入仓库。
 - 公网端口：未开放；当前通过 SSH 访问，客户端见 `scripts/yugang-remote.sh`。
 - 开源仓库：公开在 https://github.com/KWELLDO/YuGang（MIT）。
 
 ## 已验证
 
-- 自动化测试：31 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、觉察卡证据、睡眠应用与未闭合事项去重、预算闸门、HTTP 鉴权、鱼缸页、邮件解析、同窗口续聊语义）。
+- 自动化测试：33 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、觉察卡证据、睡眠应用与未闭合事项去重、预算闸门、HTTP 鉴权、鱼缸页、邮件解析、同窗口续聊语义、崩溃恢复、备份完整性与 manifest）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -24,11 +26,13 @@
 - 第二次睡去暴露的问题：同一条「检验 given 主张」被重复写成两条未闭合事项。已修复为按标题去重，并加回归测试，已部署。
 - 崩溃恢复：进程在消息已写入 L1、但尚未回复时退出，重启会按原 message/event id 重新入队，不重复写 L1；处理中的消息也会重试。回复会写回入站消息的 meta，重复投递同一 external_id 时直接返回缓存回复。
 - 手机优先的「鱼缸」页：显示醒着/睡着、上次睡去、最近对话、SELF.md、未闭合事项、觉察卡和预算；留言走 `POST /message`，睡着时也会叫醒她。页面无外部资源，token 可放在 `?token=` 查询参数里一次性打开。
+- 崩溃恢复与备份：进程在回复前退出时，重启会按原 message/event id 重新入队且不重复写 L1；每日备份多次运行成功（256K、events=22、chain_ok=true、db_integrity=ok），快照为单文件、权限 0600、目录 0700。
+- DSH 运维控制台：以真实 key 做 headless 验证（只回答「控制台可用。」），3199 无 token 返回 401，带 token 可打开 DSH Web；控制台共用 key，但其模型花费不进入她的 5 元日预算。
 - 账单：截至 01:08，当日花费 0.038868 元 / 5 元。
 
 ## 进行中 / 下一步
 
-- 独立 DSH 交互层（当前是 YuGang 自己的 HTTP 网关 + 鱼缸页，不依赖 DSH 进程）。
+- 把 DSH 接成她的推理运行时（目前 3199 只是运维控制台，不参与她的唤醒/记忆写入）。
 - IM/邮件通道：邮件代码已实现，缺一个专用邮箱凭据；微信/QQ 需要公网回调或非官方桥，尚未接入。
 - 私有网络：目前是 SSH 隧道；Tailscale/WireGuard 还需要手机端安装与授权。
 - 更长的连续运行观察：跨日预算、异常/重启后的恢复、觉察卡进入唤醒上下文。

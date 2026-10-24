@@ -1,0 +1,28 @@
+[Unit]
+Description=DSH operator console for YuGang (private 127.0.0.1:3199)
+Documentation=https://github.com/KWELLDO/YuGang
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dafeiyu
+Group=dafeiyu
+WorkingDirectory=/home/dafeiyu/ayu
+EnvironmentFile=/etc/dafeiyu-dsh.env
+Environment=HOME=/home/dafeiyu
+Environment=DSH_HOME=/home/dafeiyu/.dsh
+ExecStartPre=/usr/bin/install -d -o dafeiyu -g dafeiyu /home/dafeiyu/.dsh
+ExecStart=/home/dafeiyu/ayu/run-dsh-web.sh
+Restart=always
+RestartSec=3
+TimeoutStartSec=90
+MemoryMax=800M
+CPUQuota=50%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/dafeiyu
+
+[Install]
+WantedBy=multi-user.target

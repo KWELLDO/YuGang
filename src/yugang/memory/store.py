@@ -220,6 +220,34 @@ class MemoryStore:
         row = self.conn.execute("SELECT ts FROM events ORDER BY rowid DESC LIMIT 1").fetchone()
         return row["ts"] if row else None
 
+    def backup(self, destination: str | Path) -> dict[str, Any]:
+        """Make a consistent SQLite snapshot and verify it before returning."""
+        target_dir = Path(destination).expanduser()
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_dir.chmod(0o700)
+        stamp = utcnow().strftime("%Y%m%dT%H%M%S%f")
+        target = target_dir / f"yugang-{stamp}.db"
+        backup_conn = sqlite3.connect(target)
+        try:
+            self.conn.backup(backup_conn)
+            backup_conn.execute("PRAGMA journal_mode=DELETE")
+            backup_conn.commit()
+        finally:
+            backup_conn.close()
+        target.chmod(0o600)
+        check = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
+        try:
+            integrity = str(check.execute("PRAGMA integrity_check").fetchone()[0])
+            events = int(check.execute("SELECT COUNT(*) FROM events").fetchone()[0])
+        finally:
+            check.close()
+        return {
+            "path": str(target),
+            "bytes": target.stat().st_size,
+            "integrity": integrity,
+            "events": events,
+        }
+
     def verify_chain(self) -> tuple[bool, str | None]:
         prev = GENESIS_HASH
         for row in self.conn.execute("SELECT * FROM events ORDER BY rowid ASC"):

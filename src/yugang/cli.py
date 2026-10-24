@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import shutil
 import signal
 import sys
 import tempfile
 import threading
+import time
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -17,7 +20,7 @@ from .gateway.channels.base import NullChannel
 from .gateway.channels.email import EmailChannel
 from .gateway.channels.http import HttpChannel
 from .gateway.service import GatewayService
-from .ids import day_key, utcnow
+from .ids import day_key, now_iso, utcnow
 from .memory.store import MemoryStore
 from .runtime.mock import MockRuntime
 from .runtime.openai_compat import OpenAICompatRuntime
@@ -284,6 +287,69 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if not problems else 1
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def cmd_backup(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = make_store(cfg)
+    destination = Path(args.dir).expanduser() if args.dir else Path(cfg.home) / "backups"
+    result = store.backup(destination)
+    db_path = Path(result["path"])
+    stem = db_path.stem
+    dest = db_path.parent
+    self_target = dest / f"{stem}.SELF.md"
+    self_source = Path(cfg.self_path)
+    if self_source.exists():
+        shutil.copy2(self_source, self_target)
+        self_target.chmod(0o600)
+    chain_ok, bad_event = store.verify_chain()
+    current_self = store.current_self_version()
+    manifest = {
+        "created_at": now_iso(),
+        "db": db_path.name,
+        "db_sha256": _sha256_file(db_path),
+        "db_bytes": result["bytes"],
+        "db_integrity": result["integrity"],
+        "events": result["events"],
+        "chain_ok": chain_ok,
+        "chain_bad_event": bad_event,
+        "self_md": self_target.name if self_target.exists() else None,
+        "self_md_sha256": _sha256_file(self_target) if self_target.exists() else None,
+        "self_version": current_self.id if current_self else None,
+        "stats": store.stats(),
+    }
+    manifest_path = dest / f"{stem}.manifest.json"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest_path.chmod(0o600)
+    removed: list[str] = []
+    keep = int(getattr(args, "keep", 14) or 0)
+    if keep > 0:
+        cutoff = time.time() - keep * 86400
+        current_names = {db_path.name, self_target.name, manifest_path.name}
+        for candidate in dest.iterdir():
+            if candidate.name in current_names or not candidate.is_file():
+                continue
+            if candidate.stat().st_mtime < cutoff:
+                candidate.unlink()
+                removed.append(candidate.name)
+    _print_json(
+        {
+            "ok": result["integrity"] == "ok" and chain_ok,
+            "db": result,
+            "self": str(self_target) if self_target.exists() else None,
+            "manifest": str(manifest_path),
+            "removed": removed,
+        }
+    )
+    return 0 if result["integrity"] == "ok" and chain_ok else 1
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     home = tempfile.mkdtemp(prefix="yugang-demo-") if not args.home else str(Path(args.home).expanduser())
     cfg = Config.default(home)
@@ -351,6 +417,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("doctor", help="部署前自检")
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("backup", help="备份数据库与 SELF.md，并校验备份")
+    p.add_argument("--dir", default=None, help="备份目录（默认 <home>/backups）")
+    p.add_argument("--keep", type=int, default=14, help="保留天数；0 表示不清理")
+    p.set_defaults(func=cmd_backup)
 
     p = sub.add_parser("demo", help="离线端到端 demo")
     p.set_defaults(func=cmd_demo)

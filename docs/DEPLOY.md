@@ -92,3 +92,49 @@ The token is in `/etc/dafeiyu-dsh.env` on the host. The page reads it once, stor
 3. **Mail** (poll IMAP; requires a dedicated mailbox and credentials).
 
 Public `ayu.*` DNS/nginx exposure is intentionally not used in v1.
+
+## Daily backup
+
+`yugang-backup.timer` runs at 04:15 local time (with up to 3 minutes of jitter) and writes a
+consistent snapshot to `/home/dafeiyu/.yugang/backups/`:
+
+- `<stamp>.db` — SQLite snapshot in `journal_mode=DELETE`, mode 0600, integrity-checked
+- `<stamp>.SELF.md` — the SELF.md as of the backup
+- `<stamp>.manifest.json` — sha256, event count, hash-chain status, SELF version
+
+It keeps 14 days. Run one by hand:
+
+```bash
+sudo systemctl start yugang-backup.service
+sudo systemctl status yugang-backup.service --no-pager
+ls -lh /home/dafeiyu/.yugang/backups/
+```
+
+To restore, stop the gateway first, replace `/home/dafeiyu/.yugang/yugang.db` with the
+snapshot (and `SELF.md` if needed), `chown dafeiyu:dafeiyu`, then start the gateway and check
+`/health` and `/status` (`chain_ok` must be true). Backups contain her memories; keep the
+directory private.
+
+## DSH operator console
+
+The console is a separate DSH process for **operations**, not a second persona and not her
+inference runtime. It has its own `DSH_HOME=/home/dafeiyu/.dsh` and its own web session.
+
+```bash
+sudo install -m 644 deploy/dsh/dafeiyu-dsh.service /etc/systemd/system/dafeiyu-dsh.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now dafeiyu-dsh.service
+```
+
+It binds `127.0.0.1:3199`. The launch token is random per process and is written by the
+wrapper to `/home/dafeiyu/.dsh/web-url` (mode 0600) once the server is listening:
+
+```bash
+sudo cat /home/dafeiyu/.dsh/web-url   # http://127.0.0.1:3199/?token=...
+ssh -N -L 3199:127.0.0.1:3199 user@host
+```
+
+Then open that URL on the laptop. It is an operator console: read SELF.md, inspect the tank,
+and send messages with `scripts/say.sh`. It shares the DeepSeek key with the gateway, but its
+own model usage is **not** counted against her 5 CNY daily budget. Do not run her memory or
+gateway inside it.

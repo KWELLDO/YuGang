@@ -42,24 +42,33 @@ yugang demo
 channels (http / email / im)
         │
         ▼
-yugang-gateway  ── wake window ── runtime (LLM / DSH)
+yugang-gateway  ── wake window ── runtime (LLM adapter)
         │                               │
         ▼                               ▼
 memory core (SQLite + FTS5)      self-awareness
   L1 events  L2 judgments          awareness cards
   L3 stances SELF.md versions      self diffs
         │
+        ├── daily backup (SQLite snapshot + SELF.md)
         ▼
 fish tank (read-only observation)
+
+operator console (separate DSH process, 127.0.0.1:3199) ──▶ tank/status/say
+  not her: a separate DSH_HOME and session, read-only by default
 ```
 
 ## 状态
 
 v0.1 已在一个私有云端实例上运行：独立 Unix 用户、独立 HOME 与数据目录、systemd 常驻、仅监听 `127.0.0.1:3198`，不开放公网端口。
-记忆核心、SELF.md 版本、醒来/睡去协议、预算闸门、清醒窗口、HTTP 鉴权、鱼缸页与同步回复均有自动化测试（31 passed）。
+记忆核心、SELF.md 版本、醒来/睡去协议、预算闸门、清醒窗口、HTTP 鉴权、鱼缸页、崩溃恢复、每日备份与同步回复均有自动化测试（33 passed）。
 
 已验证：第一次云上醒来能读 SELF.md/L1；服务重启后能重建上次对话，并把这次醒来正确标记为「中断」而不是「睡了一觉」。第一次完整的自然 idle→睡去→巩固→醒来闭环也已跑通：日记、两条带真实 L1 证据的 L2 判断、L3 立场、一条未闭合事项、下次意图，以及醒来时对睡眠缺口的正确识别。
-尚未完成：IM/邮件凭据、独立 DSH 交互层；代码已开源在本仓库。
+
+运维侧另有一个独立的 DSH 控制台（`127.0.0.1:3199`，独立 `DSH_HOME`，默认只读）。它**不是她的第二个人格**，也不是她的推理运行时；它通过 `tank.sh` / `status.sh` / `say.sh` 查看鱼缸或留言。控制台与网关共用 DeepSeek key，但控制台自身消耗**不进入**她的 5 元日预算。
+
+每日 04:15 由 `yugang-backup.timer` 生成一致性备份（SQLite 快照 + SELF.md + manifest），保留 14 天。
+
+尚未完成：IM/邮件凭据、把 DSH 接成她的推理运行时（当前只是运维控制台）、手机端私有网络（目前 SSH 隧道）。代码已开源在本仓库。
 
 网关自带一个手机优先的「鱼缸」页：显示她醒着/睡着、最近对话、SELF.md、未闭合事项和预算，并可直接留言（留言会叫醒她）。访问方式与部署细节见 `docs/DEPLOY.md`，运维状态见 `docs/STATUS.md`。
 

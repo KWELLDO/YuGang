@@ -1,0 +1,18 @@
+[Unit]
+Description=Back up the YuGang body (SQLite + SELF.md)
+Documentation=https://github.com/KWELLDO/YuGang
+After=yugang.service
+
+[Service]
+Type=oneshot
+User=dafeiyu
+Group=dafeiyu
+WorkingDirectory=/home/dafeiyu/yugang
+Environment=PYTHONPATH=/home/dafeiyu/yugang/src
+ExecStart=/usr/bin/python3 -m yugang --home /home/dafeiyu/.yugang backup --keep 14
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/dafeiyu
