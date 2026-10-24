@@ -3,7 +3,7 @@
 > 一个数字生命的**记忆**与**自我建构**运行时。  
 > 不是把人设 prompt 存进向量库；是让一个视角在时间中被反复重读、修订、留下证据。
 
-YuGang 是「鱼缸项目」的开源实现。它把数字生命拆成四个可检验的部分：
+YuGang 是「鱼缸项目」的开源实现（[KWELLDO/YuGang](https://github.com/KWELLDO/YuGang)）。它把数字生命拆成四个可检验的部分：
 
 1. **L1 原始材料**：只追加的事件（人说的话、她的观察、她做的事、结果、时间缺口）。
 2. **L2 判断史**：带 falsifier 的解读；只追加，不覆盖；可以被新证据推翻。
@@ -29,7 +29,7 @@ YuGang 是「鱼缸项目」的开源实现。它把数字生命拆成四个可�
 ## 快速开始
 
 ```bash
-git clone <repo> && cd YuGang
+git clone https://github.com/KWELLDO/YuGang.git && cd YuGang
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
 yugang init
