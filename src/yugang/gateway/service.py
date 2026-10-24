@@ -699,6 +699,7 @@ class GatewayService:
         summary = self.budget.summary(now)
         pending_alarms = self.store.pending_alarms(limit=1)
         paused = self.paused_info()
+        chain_ok, chain_bad = self.store.verify_chain()
         return {
             "name": self.config.name,
             "awake": self.window.is_awake(),
@@ -711,6 +712,7 @@ class GatewayService:
             "queue": self.queue.qsize(),
             "event_count": self.store.event_count(),
             "last_event_ts": self.store.last_event_ts(),
+            "chain": {"ok": chain_ok, "bad_event": chain_bad},
             "budget": _jsonable(summary),
             "budget_stage": self.budget.stage(now),
             "channels": [getattr(c, "name", type(c).__name__) for c in self.channels],
@@ -719,6 +721,7 @@ class GatewayService:
 
     def tank(self) -> dict[str, Any]:
         self_text = self.store.current_self() or ""
+        stance = self.store.current_stance()
         last_sleep = self.store.latest_event("sleep")
         judgments = [
             {
@@ -736,6 +739,7 @@ class GatewayService:
             "name": self.config.name,
             "status": self.status(),
             "self": self_text,
+            "stance": _jsonable(stance) if stance else None,
             "self_history": [
                 {
                     "id": v.id,

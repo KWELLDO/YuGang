@@ -249,7 +249,7 @@ def test_fish_tank_page_requires_token_and_speaks_html(running):
         assert "text/html" in headers["Content-Type"]
         assert "鱼缸" in body and "/message" in body
         assert 'id="beliefs"' in body and 'id="awareness"' in body
-        assert 'id="self-history"' in body
+        assert 'id="self-history"' in body and 'id="stance"' in body
 
         status, headers, _body = _request_raw(
             port, "GET", "/", headers={"Authorization": "Bearer s3cret"}
@@ -273,7 +273,10 @@ def test_tank_includes_judgment_and_card_status(running):
         0.5,
     )
     store.review_awareness(card.id, "accepted", note="测试")
+    stance = store.commit_stance("我在测试里仍然只认有证据的判断。", [evidence.id], trigger="测试")
     tank = service.tank()
+    assert tank["stance"]["id"] == stance.id
+    assert tank["status"]["chain"] == {"ok": True, "bad_event": None}
     assert tank["judgments"][0]["claim"] == "我能读到这段记忆。"
     assert tank["judgments"][0]["status"] == "open"
     old = store.add_judgment("旧说法", "如果被反例推翻", [evidence.id], 0.4)
@@ -289,6 +292,30 @@ def test_tank_includes_judgment_and_card_status(running):
     assert tank["awareness"][0]["status"] == "accepted"
     assert tank["self_history"][0]["id"]
     assert "reason" in tank["self_history"][0]
+
+
+def test_tank_reports_a_broken_l1_chain(running):
+    service, store, _cfg = running
+    store.conn.execute(
+        "INSERT INTO events(id, ts, source, kind, content, actor, channel, refs, meta, prev_hash, hash, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "evt_bad",
+            "2026-10-24T00:00:00.000000+00:00",
+            "system",
+            "note",
+            "tampered",
+            "operator",
+            None,
+            "[]",
+            "{}",
+            "not-the-previous-hash",
+            "not-the-right-hash",
+            "2026-10-24T00:00:00.000000+00:00",
+        ),
+    )
+    tank = service.tank()
+    assert tank["status"]["chain"] == {"ok": False, "bad_event": "evt_bad"}
 
 
 def _request_raw(port, method, path, headers=None):

@@ -95,6 +95,11 @@ a { color:var(--accent); }
 </div>
 
 <section class="card">
+  <h2>她现在的立场 <span id="stance-ts" class="muted"></span></h2>
+  <div id="stance" class="muted">—</div>
+</section>
+
+<section class="card">
   <h2>她怎么改过自己 <span id="self-history-count" class="muted"></span></h2>
   <div id="self-history"></div>
 </section>
@@ -177,6 +182,18 @@ function renderBeliefs(judgments) {
     box.append(d);
   }
 }
+function renderStance(s) {
+  const box = $('stance'); box.replaceChildren();
+  const note = $('stance-ts');
+  if (!s || !s.content) { note.textContent = ''; box.textContent = '还没有形成明确的当前立场。'; return; }
+  note.textContent = fmt(s.ts);
+  const d = el('div','item');
+  d.append(el('div','claim', s.content));
+  const meta = el('div','meta');
+  meta.append(document.createTextNode('依据 ' + ((s.based_on || []).length) + ' 条 L1 · ' + (s.trigger || '睡去时重算')));
+  d.append(meta);
+  box.append(d);
+}
 function renderSelfHistory(versions) {
   const box = $('self-history'); box.replaceChildren();
   const rows = (versions || []).slice(0, 5);
@@ -227,6 +244,7 @@ async function refresh() {
     const alarm = (t.alarms || [])[0];
     $('alarm-note').textContent = alarm ? '下一次自己设的醒来：' + fmt(alarm.due_at) : '';
     $('self').textContent = t.self || '（SELF.md 还没有内容）';
+    renderStance(t.stance);
     renderSelfHistory(t.self_history);
     renderLoops(t.open_loops);
     renderBeliefs(t.judgments);

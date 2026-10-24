@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 05:20 CST（Asia/Shanghai）
+更新时间：2026-10-25 05:26 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：91 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
+- 自动化测试：92 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -227,5 +227,10 @@
 - 新增 `src/yugang/gateway/channels/onebot.py`：OneBot v11 私聊 webhook + `send_private_msg` 回信；默认绑定 `127.0.0.1:3197`，只接受 `message_type=private`，显式 `allowed_user_ids` 白名单，空名单 fail closed；非 loopback 绑定必须有共享 secret。
 - 鉴权支持 `Authorization: Bearer <secret>`、`X-YuGang-Secret`、`X-Signature: sha1=... / sha256=...`（HMAC 原始 body）；无 secret 时只接受 loopback。
 - 回信按 `max_message_chars` 分片，失败返回 False，由 `_finalize` 写 `system/error`，不会静默丢回复。
-- 新增 8 个测试：事件解析、分片、secret fail-closed、坏 secret/未授权用户/群消息/自己消息、API 鉴权与长文本分片、webhook→L1→回复→OneBot API 的端到端、配置加载。全量 **91 passed**。
+- 新增 8 个测试：事件解析、分片、secret fail-closed、坏 secret/未授权用户/群消息/自己消息、API 鉴权与长文本分片、webhook→L1→回复→OneBot API 的端到端、配置加载。全量 **92 passed**。
 - 尚未在云端启用：需要一个专用 QQ 号登录 NapCat 并扫码授权；代码与文档已就绪，NapCat 配置见 `docs/DEPLOY.md`。
+### 鱼缸页显示 L3 与记忆链状态（05:26 CST，代码完成，待部署）
+
+- `tank()` 新增 `stance`（当前 L3 立场，含时间、内容、依据的 L1 id、trigger）；鱼缸页新增「她现在的立场」，显示最近一次睡去重算出的薄层，不再只能从 SELF.md 或对话里猜。
+- `status()` 新增 `chain: {ok, bad_event}`：每次查询都跑 `verify_chain()`，L1 哈希链断裂时 `/status` 直接显示 `ok=false` 和第一个坏事件 id；不缓存，避免用事件数量掩盖同数量的内容篡改。
+- 更新 `test_tank_includes_judgment_and_card_status`（断言 stance 与 chain）与鱼缸页 HTML 测试（断言 `id="stance"`）；全量仍 **92 passed**，页面 JS 通过 `node --check`。
