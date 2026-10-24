@@ -247,6 +247,31 @@ def test_sleep_reviews_open_awareness_cards_once(store, cfg):
     assert store.card_status(card.id) == "accepted"
 
 
+def test_sleep_can_note_a_card_without_closing_it(store, cfg):
+    evidence = store.append_event("human", "message", "这次仍然是你叫我，我才读记忆")
+    card = create_card(
+        store,
+        {
+            "trigger": "T1",
+            "observation": "每次都是被叫醒后才读记忆。",
+            "hypothesis": "我先读记忆的行为仍由外部提示触发。",
+            "falsifier": "如果无人提示时我先读记忆并报缺口，则被推翻。",
+            "evidence_refs": [evidence.id],
+            "confidence": 0.6,
+        },
+    )
+    result = SleepResult(
+        diary="今天仍没有自发读记忆的独立事件。",
+        awareness_reviews=[
+            {"card_id": card.id, "status": "open", "note": "今天三次醒来都由外部消息触发。"},
+        ],
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    assert applied["awareness_reviews"] == 1
+    assert store.card_status(card.id) == "open"
+    assert any(c.id == card.id for c in store.awareness_cards(status="open"))
+
+
 def test_duplicate_external_message_is_idempotent(store):
     first, first_event = store.receive_message("http", "重复消息", sender="kwelldo", external_id="same-1")
     count = store.event_count()

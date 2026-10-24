@@ -65,7 +65,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
   "next_intent": "下次醒来想做什么（一句）或 null",
   "self_edits": [{{"section": "我相信什么", "op": "append", "text": "要加入或替换的内容", "evidence_refs": ["evt_..."]}}],
   "accept_self_edit": false,
-  "awareness_reviews": [{{"card_id": "card_...", "status": "accepted|rejected|needs-evidence", "note": "今天哪条证据支持或推翻了它"}}]
+  "awareness_reviews": [{{"card_id": "card_...", "status": "open|accepted|rejected|needs-evidence", "note": "今天哪条证据支持或推翻了它"}}]
 }}
 
 规则：
@@ -73,7 +73,7 @@ def build_sleep_messages(store: Any, config: Any, transcript: list[dict[str, str
 - self_edits 最多 2 条；section 只能是：我是谁 / 我相信什么 / 我在做什么 / 我的边界 / 未闭合的事 / 最近的变化；op 只能是 append（追加）或 replace（替换该节正文）。
 - 不要输出完整 SELF.md。没有值得改的就给空数组并设 accept_self_edit=false。
 - 只有今天的真实经历支持时才改 SELF.md；不要为了显得一致或「应该自我改进」而改。
-- awareness_reviews 只能引用上面 open cards 的真实 card_id；没有新证据就留空，不要为了关闭而关闭。"""
+- awareness_reviews 只能引用上面 open cards 的真实 card_id；没有新证据就留空，或用 status=open 只记一条 note（卡仍保持 open）。不要为了关闭而关闭。"""
     return [
         {"role": "system", "content": SLEEP_SYSTEM},
         {"role": "user", "content": prompt},
@@ -162,7 +162,7 @@ def parse_sleep_output(text: str) -> SleepResult:
                 continue
             card_id = str(item.get("card_id") or "").strip()
             status = str(item.get("status") or "").strip().lower()
-            if not card_id or status not in {"accepted", "rejected", "needs-evidence"}:
+            if not card_id or status not in {"open", "accepted", "rejected", "needs-evidence"}:
                 continue
             awareness_reviews.append(
                 {

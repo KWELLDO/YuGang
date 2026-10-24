@@ -116,14 +116,16 @@ def test_parse_sleep_output_drops_invalid_awareness_reviews():
         "diary": "今天有觉察卡复核。",
         "awareness_reviews": [
             {"card_id": "card_real", "status": "accepted", "note": "有证据"},
+            {"card_id": "card_real", "status": "open", "note": "仍无新证据，但记一笔"},
             {"card_id": "card_real", "status": "maybe", "note": "非法状态"},
             {"card_id": "", "status": "accepted", "note": "没有 id"},
         ],
     }
     result = parse_sleep_output(json.dumps(payload, ensure_ascii=False))
-    assert len(result.awareness_reviews) == 1
+    assert len(result.awareness_reviews) == 2
     assert result.awareness_reviews[0]["card_id"] == "card_real"
     assert result.awareness_reviews[0]["status"] == "accepted"
+    assert result.awareness_reviews[1]["status"] == "open"
 
 
 def test_parse_sleep_output_accepts_add_as_append_alias():
