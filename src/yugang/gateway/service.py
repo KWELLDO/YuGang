@@ -66,6 +66,7 @@ class GatewayService:
         self._daily_attempt_day: str | None = None
         self._last_idle_check = 0.0
         self._current_wake_id: str | None = None
+        self._channel_health_cache: dict[str, bool | None] = {}
         self.last_reply: str | None = None
         self.started_at = now_iso()
         self._last_tick_monotonic = time.monotonic()
@@ -257,16 +258,65 @@ class GatewayService:
             finally:
                 self.queue.task_done()
 
+    def _channel_health(self) -> dict[str, dict[str, Any]]:
+        result: dict[str, dict[str, Any]] = {}
+        for channel in self.channels:
+            name = str(getattr(channel, "name", type(channel).__name__))
+            probe = getattr(channel, "health", None)
+            if callable(probe):
+                try:
+                    value = probe()
+                    result[name] = value if isinstance(value, dict) else {"healthy": value}
+                except Exception as exc:
+                    result[name] = {"healthy": False, "last_error": f"{type(exc).__name__}: {exc}"}
+            else:
+                result[name] = {"healthy": True}
+            result[name].setdefault("name", name)
+        return result
+
+    def _watch_channels(self) -> None:
+        """Write one L1 event when a channel changes health, not every second."""
+        current = self._channel_health()
+        for name, info in current.items():
+            healthy = info.get("healthy")
+            if healthy is None:
+                continue
+            previous = self._channel_health_cache.get(name)
+            if previous is healthy:
+                continue
+            self._channel_health_cache[name] = healthy
+            if previous is None and healthy:
+                continue
+            if healthy:
+                self.store.append_event(
+                    "system",
+                    "note",
+                    f"通道恢复：{name}",
+                    meta={"channel": name},
+                )
+            else:
+                detail = str(info.get("last_error") or "unknown")
+                self.store.append_event(
+                    "system",
+                    "error",
+                    f"通道不健康：{name}（{detail}）",
+                    meta={"channel": name, "failures": info.get("consecutive_failures")},
+                )
+
     def health(self) -> dict[str, Any]:
         worker_alive = bool(self._worker is not None and self._worker.is_alive())
         age = max(0.0, round(time.monotonic() - self._last_tick_monotonic, 3))
         max_age = float(getattr(self.config, "health_max_tick_age_seconds", 600))
+        channels = self._channel_health()
+        degraded = any(info.get("healthy") is False for info in channels.values())
         return {
             "ok": bool(self._started and worker_alive and age <= max_age),
+            "degraded": degraded,
             "awake": self.window.is_awake(),
             "paused": self.is_paused(),
             "worker_alive": worker_alive,
             "last_tick_age_seconds": age,
+            "channels": channels,
         }
 
     def process_message(self, incoming: IncomingMessage) -> str | None:
@@ -508,6 +558,7 @@ class GatewayService:
         if monotonic - self._last_idle_check < 2.0:
             return
         self._last_idle_check = monotonic
+        self._watch_channels()
         if self.is_paused():
             if self.window.is_awake():
                 self._end_wake()
@@ -563,6 +614,26 @@ class GatewayService:
             return None
         if self.window.is_awake():
             return None
+        # Check the budget before writing a wake event. A blocked attempt is not
+        # an awakening; recording one would later look like an interruption with
+        # no sleep, inventing a gap that never happened.
+        probe = build_wake_context(
+            self.store,
+            self.config,
+            query="",
+            now=now,
+            current_wake_id=None,
+            new_wake=True,
+            body=self._body_state(now),
+        )
+        probe_messages = morning_check_messages(probe, reason=reason)
+        estimated = self.budget.estimate(
+            probe_messages, int(getattr(self.config, "reply_max_tokens", 2000)), self.config.model
+        )
+        decision = self.budget.check(estimated, kind="autonomous", user_facing=False, now=now)
+        if not decision.allowed:
+            self.store.append_event("system", "note", f"自主醒来被预算拦下：{decision.reason}", meta={"reason": reason})
+            return None
         wake_event = self._record_wake(reason, now)
         context = build_wake_context(
             self.store,
@@ -574,12 +645,6 @@ class GatewayService:
             body=self._body_state(now),
         )
         messages = morning_check_messages(context, reason=reason)
-        estimated = self.budget.estimate(messages, int(getattr(self.config, "reply_max_tokens", 2000)), self.config.model)
-        decision = self.budget.check(estimated, kind="autonomous", user_facing=False, now=now)
-        if not decision.allowed:
-            self.store.append_event("system", "note", f"自主醒来被预算拦下：{decision.reason}", meta={"reason": reason})
-            self._end_wake()
-            return None
         try:
             if self.runtime is None:
                 raise RuntimeError("runtime is not configured")
@@ -801,6 +866,7 @@ class GatewayService:
             "budget": _jsonable(summary),
             "budget_stage": self.budget.stage(now),
             "channels": [getattr(c, "name", type(c).__name__) for c in self.channels],
+            "channel_health": self._channel_health(),
             "started_at": self.started_at,
         }
 

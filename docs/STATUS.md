@@ -280,3 +280,11 @@
 - 真实自主醒来验证（22:04:51Z / 06:04 CST）：手动插入 due alarm `alarm_20261024T220450026941_26c5d3`，她在 22:04:51 自主醒来、22:04:56 睡去；L1 observation `evt_20261024T220455544899_04664a` 不含 `<awareness`（1111 字），邮件 INBOX 1074 正文也不含该标签；旧邮件 1073 是修复前已经发出的历史泄漏，无法撤回，但不会再产生新的。
 - 这次她还回了一条 L2 复核、一张 open 卡的复核，并更新了 loop `ab253e`；睡去 `parsed=true`、`judgment_reviews=1`、`awareness_reviews=1`、`loop_updates=1`、`self_committed=false`。`/status`：events=184、chain ok、budget 0.984186/5、next_alarm=null。
 
+### 通道健康与预算顺序（06:12 CST，已实现）
+
+- 邮件通道原来在 `_loop()` 里 `except Exception: pass`：IMAP 登录失败时进程仍显示健康，但她永远收不到邮件。现在 `EmailChannel._poll_and_record()` 记录 `last_poll_at` / `last_success_at` / `last_error` / `consecutive_failures`，`health()` 返回 `healthy=None`（未轮询过）或 `True/False`。
+- `GatewayService._channel_health()` 汇总每个 channel 的 health；`/health` 新增 `channels` 与 `degraded`（任一通道明确不健康时为 true），`/status` 新增 `channel_health`。`idle_tick()` 调用 `_watch_channels()`，只在健康状态变化时写一次 L1：故障写 `system/error`「通道不健康」，恢复写 `system/note`「通道恢复」，不会每个 tick 重复刷。
+- 预算顺序修正：`autonomous_wake()` 以前先写 wake 再查预算，预算不足时会留下一个没有 sleep 的假 wake，下一次醒来会被误判为「中断」。现在先用 `build_wake_context(current_wake_id=None, new_wake=True)` 构建探针上下文并检查预算；被拦下时只写 `system/note`「自主醒来被预算拦下」，不写 wake、不结束当前窗口。
+- 新增测试：`test_email_health_records_poll_failure_and_recovery`、`test_health_exposes_channel_state_and_logs_only_transitions`、`test_a_budget_blocked_autonomous_wake_does_not_leave_a_fake_wake`；全量 **103 passed**。
+- 待部署验证：/health 的 channels/degraded、通道故障一次记录、预算拦截不产生 wake。
+

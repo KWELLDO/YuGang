@@ -185,6 +185,16 @@ def test_daily_floor_uses_local_hour_not_utc(cfg, store):
 
 
 
+def test_a_budget_blocked_autonomous_wake_does_not_leave_a_fake_wake(store, cfg):
+    cfg.daily_budget_cny = 0.0
+    service = GatewayService(cfg, store, MockRuntime(responder=lambda m, p: "我在。"))
+    assert service.autonomous_wake("每日保底") is None
+    assert store.latest_event("wake") is None
+    notes = [event for event in store.events(kind="note") if "自主醒来被预算拦下" in event.content]
+    assert notes
+    assert service.window.is_awake() is False
+
+
 def test_self_alarm_is_created_after_grace_and_clamped_by_range(store, cfg):
     from yugang.protocol.sleep import SleepResult, apply_sleep_result
 

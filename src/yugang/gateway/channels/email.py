@@ -6,7 +6,7 @@ import os
 import re
 import smtplib
 import threading
-import time
+from datetime import datetime, timezone
 from email.header import decode_header, make_header
 from email.message import EmailMessage, Message
 from email.utils import parseaddr
@@ -70,6 +70,11 @@ class EmailChannel:
         self.on_message: Callable[[IncomingMessage], Any] | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._health_lock = threading.Lock()
+        self._last_poll_at: str | None = None
+        self._last_success_at: str | None = None
+        self._last_error: str | None = None
+        self._consecutive_failures = 0
         # Accept either the full Config or the EmailConfig sub-dataclass.
         if hasattr(config, "email_password"):
             self.password = config.email_password()
@@ -91,11 +96,42 @@ class EmailChannel:
     def _loop(self) -> None:
         interval = max(15, int(getattr(self.config, "poll_seconds", 60)))
         while not self._stop.is_set():
-            try:
-                self.poll_once()
-            except Exception:
-                pass
+            self._poll_and_record()
             self._stop.wait(interval)
+
+    def _poll_and_record(self) -> int:
+        """Poll once and keep an honest, operator-visible health record.
+
+        A dead IMAP login used to be swallowed here: the process stayed
+        healthy-looking while no message could ever arrive. The poller now
+        records the failure and the gateway surfaces it in /health.
+        """
+        stamp = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        try:
+            count = self.poll_once()
+        except Exception as exc:
+            with self._health_lock:
+                self._last_poll_at = stamp
+                self._last_error = f"{type(exc).__name__}: {exc}"
+                self._consecutive_failures += 1
+            return 0
+        with self._health_lock:
+            self._last_poll_at = stamp
+            self._last_success_at = stamp
+            self._last_error = None
+            self._consecutive_failures = 0
+        return count
+
+    def health(self) -> dict[str, Any]:
+        with self._health_lock:
+            return {
+                "name": self.name,
+                "healthy": None if self._last_poll_at is None else self._consecutive_failures == 0,
+                "last_poll_at": self._last_poll_at,
+                "last_success_at": self._last_success_at,
+                "consecutive_failures": self._consecutive_failures,
+                "last_error": self._last_error,
+            }
 
     def _unseen_numbers(self, imap: Any) -> list[bytes]:
         senders = [

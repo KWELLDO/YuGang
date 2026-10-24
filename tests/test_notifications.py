@@ -79,3 +79,35 @@ def test_autonomous_wake_strips_awareness_and_records_it_with_real_refs(cfg, sto
     assert len(cards[0].evidence_refs) == 2
     assert all(store.ref_exists(ref) for ref in cards[0].evidence_refs)
     assert observations[0].id in cards[0].evidence_refs
+
+class FlakyChannel(NullChannel):
+    name = "email"
+
+    def __init__(self):
+        super().__init__()
+        self.healthy = None
+
+    def health(self):
+        return {"name": self.name, "healthy": self.healthy, "consecutive_failures": 1 if self.healthy is False else 0}
+
+
+def test_health_exposes_channel_state_and_logs_only_transitions(cfg, store):
+    channel = FlakyChannel()
+    service = _service(cfg, store, channel)
+    assert service.health()["channels"]["email"]["healthy"] is None
+    assert service.health()["degraded"] is False
+
+    service._watch_channels()
+    channel.healthy = False
+    service._watch_channels()
+    service._watch_channels()
+    errors = [event for event in store.events(kind="error") if "通道不健康" in event.content]
+    assert len(errors) == 1
+    assert service.health()["degraded"] is True
+
+    channel.healthy = True
+    service._watch_channels()
+    service._watch_channels()
+    notes = [event for event in store.events(kind="note") if "通道恢复" in event.content]
+    assert len(notes) == 1
+    assert service.health()["degraded"] is False

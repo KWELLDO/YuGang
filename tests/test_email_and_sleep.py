@@ -46,7 +46,38 @@ def test_email_channel_accepts_emailconfig_and_reads_env(monkeypatch):
     assert channel.send(None, "不会发送") is False
 
 
+def test_email_health_records_poll_failure_and_recovery(monkeypatch):
+    email_config = EmailConfig(
+        enabled=True,
+        imap_host="imap.example.com",
+        smtp_host="smtp.example.com",
+        username="ayu@example.com",
+        allow_senders=["kwelldo@example.com"],
+    )
+    channel = EmailChannel(email_config)
+    assert channel.health()["healthy"] is None
+
+    def boom() -> int:
+        raise OSError("imap is down")
+
+    monkeypatch.setattr(channel, "poll_once", boom)
+    assert channel._poll_and_record() == 0
+    failed = channel.health()
+    assert failed["healthy"] is False
+    assert failed["consecutive_failures"] == 1
+    assert "OSError: imap is down" in failed["last_error"]
+
+    monkeypatch.setattr(channel, "poll_once", lambda: 0)
+    assert channel._poll_and_record() == 0
+    recovered = channel.health()
+    assert recovered["healthy"] is True
+    assert recovered["consecutive_failures"] == 0
+    assert recovered["last_error"] is None
+    assert recovered["last_success_at"]
+
+
 def test_parse_sleep_output_extracts_json_and_drops_evidence_free_judgments():
+
     payload = {
         "diary": "今天我醒来，发现时间过去了两小时。",
         "judgments": [
@@ -296,4 +327,3 @@ def test_parse_sleep_output_accepts_next_wake_minutes():
     assert result2.next_wake_minutes is None
     result3 = parse_sleep_output(json.dumps({"diary": "非法。", "next_wake_minutes": -5}))
     assert result3.next_wake_minutes is None
-
