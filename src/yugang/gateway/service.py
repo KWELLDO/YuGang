@@ -870,9 +870,42 @@ class GatewayService:
         self._broadcast(f"（自我觉察卡）{card.observation}", meta={"kind": "awareness", "card_id": card.id})
         return card
 
+    def _notification_targets(self, channel: Any) -> list[str | None]:
+        """Who receives her self-initiated output on this channel.
+
+        HTTP has no addressee (the reply list is the inbox); email and OneBot
+        need a real recipient, so they fall back to the already allowlisted
+        operator rather than implying she may message strangers.
+        """
+        name = str(getattr(channel, "name", ""))
+        if name == "email":
+            return list(self.config.email.notify_to or self.config.email.allow_senders)
+        if name == "onebot":
+            return list(self.config.onebot.allowed_user_ids)
+        return [None]
+
     def _broadcast(self, text: str, *, meta: dict[str, Any] | None = None) -> None:
+        payload = meta or {}
         for channel in self.channels:
-            try:
-                channel.send(None, text, meta=meta or {})
-            except Exception:
-                pass
+            name = str(getattr(channel, "name", type(channel).__name__))
+            targets = self._notification_targets(channel)
+            if not targets:
+                self.store.append_event(
+                    "system",
+                    "note",
+                    f"自主输出没有可送达的通知目标（{name}）；内容已留在 L1。",
+                    meta={"kind": payload.get("kind"), "channel": name},
+                )
+                continue
+            for target in targets:
+                try:
+                    delivered = channel.send(target, text, meta=payload)
+                    if delivered is False:
+                        raise RuntimeError("channel.send returned False")
+                except Exception as exc:
+                    self.store.append_event(
+                        "system",
+                        "error",
+                        f"自主输出投递失败 via {name}：{type(exc).__name__}: {exc}",
+                        meta={"kind": payload.get("kind"), "channel": name},
+                    )

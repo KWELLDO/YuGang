@@ -150,11 +150,16 @@ Config in `/home/dafeiyu/.yugang/config.json`:
     "password_env": "YUGANG_EMAIL_PASSWORD",
     "folder": "INBOX",
     "allow_senders": ["you@example.com"],
+    "notify_to": ["you@example.com"],
     "subject_tag": "[YuGang]",
     "poll_seconds": 60
   }
 }
 ```
+
+`notify_to` is where her self-initiated output (an autonomous wake, an awareness
+card) is emailed; leave it empty to fall back to `allow_senders`. This never
+expands who may write to her — it only reuses the already allowlisted operator.
 
 Put the password/app-password in `/etc/dafeiyu-dsh.env` as `YUGANG_EMAIL_PASSWORD`
 (root-only, mode 0600). To test without changing unread state, run a single poll from the

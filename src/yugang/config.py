@@ -51,6 +51,9 @@ class EmailConfig:
     password_env: str = "YUGANG_EMAIL_PASSWORD"
     folder: str = "INBOX"
     allow_senders: list[str] = field(default_factory=list)
+    # Where to send her self-initiated output (autonomous wakes, awareness
+    # cards). Empty falls back to allow_senders, i.e. the operator's address.
+    notify_to: list[str] = field(default_factory=list)
     subject_tag: str = ""
     poll_seconds: int = 60
 

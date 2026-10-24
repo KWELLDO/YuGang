@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 05:26 CST（Asia/Shanghai）
+更新时间：2026-10-25 05:55 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：95 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤、醒来时的身体状态读数）。
+- 自动化测试：98 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤、醒来时的身体状态读数）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -261,3 +261,10 @@
 - `WakeWindow.history(max_chars=6000, max_turns=12)` 返回本窗口最近的 user/assistant 轮次，从旧到新，按字符预算从前面丢弃，不截断一轮；空内容/非法 role 跳过。
 - `GatewayService.process_message` 在 `build_messages` 之后把 history 插到 system 与当前 user 之间；跨清醒时 transcript 为空，仍然只靠 SELF/L1/L2/L3 重建。
 - 回归测试扩展 `test_second_message_in_same_window_is_a_continuation`：第二次调用必须是 `system / user(第一句) / assistant(嗯。) / user(第二句)`，全量 **95 passed**。
+
+### 自主醒来不再只留在 L1（05:55 CST，已实现）
+
+- 之前 `_broadcast` 对所有 channel 都调用 `send(None, ...)`；HTTP 能收下（只是进 replies），但 EmailChannel 和 OneBot 都拒绝空收件人，所以她自己设的闹钟醒来、或产生一张觉察卡时，内容只落在 L1，操作员不会收到。
+- `EmailConfig.notify_to` 是显式的通知地址；为空时回退到 `allow_senders`（也就是已经被允许给她写信的操作员），不会扩展到陌生人。OneBot 回退到 `allowed_user_ids`；HTTP 仍是无收件人的本地 inbox。
+- 没有可用收件人时写 `system/note`「自主输出没有可送达的通知目标（channel）；内容已留在 L1。」；`channel.send()` 返回 False 或抛异常时写 `system/error`，不再静默 `except: pass`。
+- 新增 3 个测试（notify_to 优先、回退 allow_senders、无收件人留 note）；全量 **98 passed**。云端配置没有 `notify_to`，部署后会自动用 `allow_senders` 的 QQ 邮箱作为通知地址。
