@@ -109,3 +109,20 @@ def test_parse_sleep_output_marks_plain_text_as_not_parsed():
     result = parse_sleep_output("整理失败了，这不是 JSON。")
     assert result.parsed is False
     assert result.self_edits == []
+
+
+def test_parse_sleep_output_accepts_add_as_append_alias():
+    payload = {
+        "diary": "她写的 op 是 add，而不是 append。",
+        "self_edits": [
+            {
+                "section": "我相信什么",
+                "op": "add",
+                "text": "只接受真实证据的改动。",
+                "evidence_refs": ["evt_real"],
+            }
+        ],
+        "accept_self_edit": True,
+    }
+    result = parse_sleep_output(json.dumps(payload, ensure_ascii=False))
+    assert result.self_edits[0]["op"] == "append"

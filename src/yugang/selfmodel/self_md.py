@@ -134,7 +134,10 @@ def apply_self_edits(
         if not isinstance(edit, dict):
             continue
         section = _canonical_section(edit.get("section"))
-        op = str(edit.get("op") or "").strip().lower()
+        op = {"add": "append", "update": "replace"}.get(
+            str(edit.get("op") or "").strip().lower(),
+            str(edit.get("op") or "").strip().lower(),
+        )
         content = str(edit.get("text") or "").strip()
         if not section or op not in {"append", "replace"} or not content:
             continue

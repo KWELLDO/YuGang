@@ -124,7 +124,10 @@ def parse_sleep_output(text: str) -> SleepResult:
             if not isinstance(item, dict):
                 continue
             section = str(item.get("section") or "").strip()
-            op = str(item.get("op") or "").strip().lower()
+            op = {"add": "append", "update": "replace"}.get(
+                str(item.get("op") or "").strip().lower(),
+                str(item.get("op") or "").strip().lower(),
+            )
             text_value = str(item.get("text") or "").strip()
             refs = item.get("evidence_refs")
             if not section or op not in {"append", "replace"} or not text_value:
