@@ -264,7 +264,7 @@ ls -lh /home/dafeiyu/.yugang/backups/
 
 To restore, stop the gateway first, replace `/home/dafeiyu/.yugang/yugang.db` with the
 snapshot (and `SELF.md` if needed), `chown dafeiyu:dafeiyu`, then start the gateway and check
-`/health`, `/status`, and the hash chain with `yugang verify` (or the latest backup
+`/health` (including `degraded` and per-channel `channels` state), `/status`, and the hash chain with `yugang verify` (or the latest backup
 manifest's `chain_ok`). Backups contain her memories; keep the directory private.
 
 To consolidate historical awareness cards that say almost the same thing:

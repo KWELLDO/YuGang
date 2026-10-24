@@ -286,5 +286,6 @@
 - `GatewayService._channel_health()` 汇总每个 channel 的 health；`/health` 新增 `channels` 与 `degraded`（任一通道明确不健康时为 true），`/status` 新增 `channel_health`。`idle_tick()` 调用 `_watch_channels()`，只在健康状态变化时写一次 L1：故障写 `system/error`「通道不健康」，恢复写 `system/note`「通道恢复」，不会每个 tick 重复刷。
 - 预算顺序修正：`autonomous_wake()` 以前先写 wake 再查预算，预算不足时会留下一个没有 sleep 的假 wake，下一次醒来会被误判为「中断」。现在先用 `build_wake_context(current_wake_id=None, new_wake=True)` 构建探针上下文并检查预算；被拦下时只写 `system/note`「自主醒来被预算拦下」，不写 wake、不结束当前窗口。
 - 新增测试：`test_email_health_records_poll_failure_and_recovery`、`test_health_exposes_channel_state_and_logs_only_transitions`、`test_a_budget_blocked_autonomous_wake_does_not_leave_a_fake_wake`；全量 **103 passed**。
-- 待部署验证：/health 的 channels/degraded、通道故障一次记录、预算拦截不产生 wake。
+- 部署 `facbe30` 到 `/home/dafeiyu/yugang` 并重启；`/health` 返回 `{"ok": true, "degraded": false, "channels": {"http": {"healthy": true}, "email": {"healthy": true, "last_success_at": "2026-10-24T22:14:00.138367+00:00", "consecutive_failures": 0, "last_error": null}}}`；`/status` 的 `channel_health` 与 `events=184 / chain ok / budget 0.984186/5` 一致。
+- 通道故障/恢复与预算拦截的断言已由 3 个自动化测试覆盖；没有为了演示故意破坏云端邮件凭据。
 
