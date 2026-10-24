@@ -201,6 +201,19 @@ def test_sleep_drops_judgment_that_cites_only_fake_evidence(store, cfg):
     assert store.judgments() == []
 
 
+def test_sleep_does_not_duplicate_an_open_loop(store, cfg):
+    store.add_open_loop("检验 given 主张")
+    result = SleepResult(
+        diary="今天又想到同一件未闭合的事。",
+        open_loops=[{"title": "检验 given 主张", "detail": "重复输出不应产生第二条"}, {"title": "新的一件事"}],
+    )
+    applied = apply_sleep_result(store, cfg, result, transcript=[])
+    titles = [loop.title for loop in store.open_loops()]
+    assert applied["open_loops"] == 1
+    assert titles.count("检验 given 主张") == 1
+    assert "新的一件事" in titles
+
+
 def test_duplicate_external_message_is_idempotent(store):
     first, first_event = store.receive_message("http", "重复消息", sender="kwelldo", external_id="same-1")
     count = store.event_count()

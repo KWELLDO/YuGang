@@ -167,9 +167,14 @@ def apply_sleep_result(
         except ValueError:
             stance = None
     applied_loops = 0
+    existing_loops = {loop.title.strip() for loop in store.open_loops(limit=100)}
     for item in result.open_loops:
+        title = str(item.get("title") or "").strip()
+        if not title or title in existing_loops:
+            continue
         try:
-            store.add_open_loop(item["title"], detail=item.get("detail"), due=item.get("due"), refs=base_refs)
+            store.add_open_loop(title, detail=item.get("detail"), due=item.get("due"), refs=base_refs)
+            existing_loops.add(title)
             applied_loops += 1
         except (ValueError, TypeError):
             continue
