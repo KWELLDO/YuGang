@@ -541,9 +541,7 @@ class GatewayService:
         channel = self._channel(incoming.channel)
         if channel is not None and incoming.channel != "http":
             try:
-                delivered = channel.send(
-                    incoming.sender, notice, meta={"subject": (incoming.meta or {}).get("subject")}
-                )
+                delivered = channel.send(incoming.sender, notice, meta=self._reply_meta(incoming))
                 if delivered is False:
                     raise RuntimeError("channel.send returned False")
             except Exception as exc:
@@ -554,6 +552,19 @@ class GatewayService:
                     channel=incoming.channel,
                     refs=refs,
                 )
+
+    def _reply_meta(self, incoming: IncomingMessage) -> dict[str, Any]:
+        """Addressing a reply needs more than the text.
+
+        The QQ platform treats a message without `msg_id` as proactive (limited
+        quota, and it may be refused); everything else only needs the subject.
+        Unknown keys are ignored by the other channels.
+        """
+        meta: dict[str, Any] = {"subject": (incoming.meta or {}).get("subject")}
+        msg_id = (incoming.meta or {}).get("msg_id")
+        if msg_id:
+            meta["msg_id"] = msg_id
+        return meta
 
     def _finalize(
         self,
@@ -606,9 +617,7 @@ class GatewayService:
         channel = self._channel(incoming.channel)
         if channel is not None and incoming.channel != "http":
             try:
-                delivered = channel.send(
-                    incoming.sender, text, meta={"subject": (incoming.meta or {}).get("subject")}
-                )
+                delivered = channel.send(incoming.sender, text, meta=self._reply_meta(incoming))
                 if delivered is False:
                     raise RuntimeError("channel.send returned False")
             except Exception as exc:
@@ -1235,6 +1244,8 @@ class GatewayService:
             return list(self.config.email.notify_to or self.config.email.allow_senders)
         if name == "onebot":
             return list(self.config.onebot.allowed_user_ids)
+        if name == "qq":
+            return list(self.config.qq.allowed_openids)
         return [None]
 
     def _broadcast(self, text: str, *, meta: dict[str, Any] | None = None) -> None:

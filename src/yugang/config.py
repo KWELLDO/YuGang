@@ -79,6 +79,29 @@ class OneBotConfig:
 
 
 @dataclass
+class QQConfig:
+    """QQ official bot platform (bot.q.qq.com), webhook mode.
+
+    Not NapCat: the platform signs every callback with Ed25519 using the bot
+    secret, and it addresses people by openid, never by QQ number. Disabled by
+    default; the webhook refuses to start without a secret, so a misconfiguration
+    cannot leave an unauthenticated public endpoint on the internet.
+    """
+
+    enabled: bool = False
+    app_id: str = ""
+    app_secret_env: str = "YUGANG_QQ_APP_SECRET"
+    api_base: str = "https://api.sgroup.qq.com"
+    token_url: str = "https://bots.qq.com/app/getAppAccessToken"
+    webhook_host: str = "127.0.0.1"
+    webhook_port: int = 3196
+    # OpenIDs, not QQ numbers: the platform does not publish a mapping.
+    allowed_openids: list[str] = field(default_factory=list)
+    request_timeout_seconds: int = 30
+    max_message_chars: int = 1000
+
+
+@dataclass
 class HttpConfig:
     enabled: bool = True
     host: str = "127.0.0.1"
@@ -131,6 +154,7 @@ class Config:
     http: HttpConfig = field(default_factory=HttpConfig)
     email: EmailConfig = field(default_factory=EmailConfig)
     onebot: OneBotConfig = field(default_factory=OneBotConfig)
+    qq: QQConfig = field(default_factory=QQConfig)
 
     @classmethod
     def default(cls, home: str | None = None) -> "Config":
@@ -158,6 +182,8 @@ class Config:
                 cfg.email = EmailConfig(**value)
             elif key == "onebot" and isinstance(value, dict):
                 cfg.onebot = OneBotConfig(**value)
+            elif key == "qq" and isinstance(value, dict):
+                cfg.qq = QQConfig(**value)
             elif hasattr(cfg, key):
                 setattr(cfg, key, value)
         cfg.home = str(Path(cfg.home).expanduser())
@@ -202,6 +228,9 @@ class Config:
 
     def onebot_webhook_secret(self) -> str | None:
         return os.environ.get(self.onebot.webhook_secret_env)
+
+    def qq_app_secret(self) -> str | None:
+        return os.environ.get(self.qq.app_secret_env)
 
     def redacted(self) -> dict[str, Any]:
         data = asdict(self)

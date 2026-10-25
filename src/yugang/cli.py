@@ -21,6 +21,7 @@ from .gateway.channels.base import NullChannel
 from .gateway.channels.email import EmailChannel
 from .gateway.channels.http import HttpChannel
 from .gateway.channels.onebot import OneBotChannel
+from .gateway.channels.qq_official import QQOfficialChannel
 from .gateway.service import GatewayService
 from .ids import day_key, now_iso, utcnow
 from .memory.store import MemoryStore
@@ -360,6 +361,18 @@ def cmd_serve(args: argparse.Namespace) -> int:
         if not cfg.onebot.allowed_user_ids:
             print("警告：OneBot 已启用但没有 allowed_user_ids，所有消息都会被拒绝（fail closed）。", file=sys.stderr)
         channels.append(OneBotChannel(cfg.onebot))
+    if cfg.qq.enabled:
+        if not cfg.qq_app_secret():
+            print(
+                f"警告：{cfg.qq.app_secret_env} 未设置，QQ 官方 webhook 会被拒绝启动（没有密钥就无法验签）。",
+                file=sys.stderr,
+            )
+        if not cfg.qq.allowed_openids:
+            print(
+                "警告：QQ 官方频道已启用但没有 allowed_openids；陌生人的消息只会被记进 L1 供你取 openid，她不会回复。",
+                file=sys.stderr,
+            )
+        channels.append(QQOfficialChannel(cfg.qq))
     service = make_service(cfg, mock=args.mock, channels=channels)
     stop = threading.Event()
 
