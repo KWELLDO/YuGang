@@ -102,6 +102,10 @@ class Config:
     request_timeout_seconds: int = 90
     reply_max_tokens: int = 2000
     sleep_max_tokens: int = 6000
+    # A message from these senders counts as the operator's own words even when
+    # it arrives on a channel strangers can also reach.
+    trusted_senders: list[str] = field(default_factory=lambda: ["kwelldo"])
+
     # Read-only memory tools during a waking conversation.
     memory_tools_enabled: bool = True
     max_tool_rounds: int = 3

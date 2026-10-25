@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from ..audit import audit_memory, memory_health
 from ..ids import day_key, now_iso, parse_ts, utcnow
 from ..memory.tools import MemoryToolbox
+from ..memory.trust import inbound_meta
 from ..protocol.sleep import SleepResult, apply_sleep_result, build_sleep_messages, parse_sleep_output
 from ..protocol.wake import build_messages, build_wake_context, morning_check_messages, record_wake
 from ..selfmodel.awareness import (
@@ -226,6 +227,16 @@ class GatewayService:
 
     # -------------------------------------------------------------------- intake
     def handle_incoming(self, incoming: IncomingMessage) -> Any:
+        # Mark the origin while it is still known. Every channel funnels through
+        # here, so this is the one place that cannot be forgotten.
+        incoming.meta = {
+            **(incoming.meta or {}),
+            **inbound_meta(
+                incoming.channel,
+                incoming.sender,
+                trusted_senders=getattr(self.config, "trusted_senders", ()),
+            ),
+        }
         message, event = self.store.receive_message(
             incoming.channel,
             incoming.content,

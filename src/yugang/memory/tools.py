@@ -14,6 +14,7 @@ from typing import Any, Callable
 from ..audit import memory_health
 from ..ids import utcnow
 from ..memory.models import Episode, Event, Judgment, OpenLoop, Practice, SelfVersion
+from ..memory.trust import ORIGIN, is_untrusted
 
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -161,6 +162,11 @@ def event_payload(event: Event, *, limit: int = 1200) -> dict[str, Any]:
         "refs": list(event.refs),
         "content": _clip(event.content, limit),
         "redacted": bool(event.meta.get("redacted")) if isinstance(event.meta, dict) else False,
+        # Text that arrived from outside keeps its mark here too, so a tool
+        # result cannot launder an instruction into something that looks like
+        # her own record.
+        "untrusted": is_untrusted(event.meta),
+        "origin": (event.meta or {}).get(ORIGIN) if is_untrusted(event.meta) else None,
     }
 
 

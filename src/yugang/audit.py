@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .ids import parse_ts, utcnow
+from .memory.trust import evidence_trust
 from .selfmodel.persona_check import check_persona
 from .selfmodel.self_md import CANONICAL_SECTIONS, get_section, section_evidence
 
@@ -155,6 +156,18 @@ def audit_memory(store: Any, config: Any, *, now: datetime | None = None) -> dic
         problems.append(f"{len(bad_falsifiers)} 条当前 L2 没有 falsifier：{', '.join(bad_falsifiers)}")
     if bad_evidence:
         problems.append(f"{len(bad_evidence)} 条当前 L2 的证据缺失或已删除")
+    # A claim whose only support is something a stranger wrote is a claim about
+    # the stranger, not about the world. She may keep it; the audit says so.
+    untrusted_only: list[str] = []
+    for judgment in current_judgments:
+        untrusted, resolved = evidence_trust(store, judgment.evidence_refs)
+        if resolved and untrusted == resolved:
+            untrusted_only.append(judgment.id)
+    if untrusted_only:
+        warnings.append(
+            f"{len(untrusted_only)} 条当前 L2 的依据全部来自外部材料（邮件/IM/公开评论）："
+            f"{', '.join(untrusted_only)}；这些判断说的是别人写了什么，不是世界是什么样。"
+        )
     duplicate_groups = store.judgment_duplicate_groups(threshold=0.72, limit=1000)
     if duplicate_groups:
         warnings.append(
@@ -163,6 +176,7 @@ def audit_memory(store: Any, config: Any, *, now: datetime | None = None) -> dic
         )
     judgments = {
         "current": len(current_judgments),
+        "untrusted_only": untrusted_only,
         "bad_falsifiers": bad_falsifiers,
         "bad_evidence": bad_evidence,
         "duplicate_groups": [
