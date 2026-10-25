@@ -54,6 +54,8 @@ def test_audit_reports_a_healthy_body(store, cfg):
     assert report["episodes"]["count"] == 1
     assert report["open_loops"]["open"] == 1
     assert report["backup"]["valid"] is True
+    section = next(item for item in report["self"]["sections"] if item["name"] == "我相信什么")
+    assert section["chars"] > 0
 
 
 def test_audit_flags_missing_and_redacted_self_evidence(store, cfg):

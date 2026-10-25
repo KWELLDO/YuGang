@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .ids import parse_ts, utcnow
-from .selfmodel.self_md import CANONICAL_SECTIONS, section_evidence, section_map
+from .selfmodel.self_md import CANONICAL_SECTIONS, get_section, section_evidence
 
 
 def _age_hours(ts: str | None, now: datetime) -> float | None:
@@ -104,9 +104,8 @@ def audit_memory(store: Any, config: Any, *, now: datetime | None = None) -> dic
     if current_self is None:
         problems.append("没有 SELF.md 版本")
     else:
-        body = section_map(current_self.content)
         for name in CANONICAL_SECTIONS:
-            text = body.get(name, "")
+            text = get_section(current_self.content, name) or ""
             refs = section_evidence(current_self.content, name)
             status = _check_refs(store, refs)
             if status["missing"]:
