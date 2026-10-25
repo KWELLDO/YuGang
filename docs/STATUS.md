@@ -435,3 +435,20 @@
 
 - 明确不借：多平台 transport 抽象、launchd、桌面控制、Slack/Discord、向量检索之争（我们用 FTS5 得出同一结论）。成本口径也不跟它：它故意只报 token 和命中率不报钱，YuGang 继续给她看 ¥（用户选 A），因为她的预算就是 5 元/日这个具体的东西。
 - 测试：新增 `tests/test_prompt_cache.py`(9)、`tests/test_persona_files.py`(6)、`tests/test_recall_visibility.py`(6)、`tests/test_trust.py`(7)、`tests/test_health_probe.py`(13，含 4 个日戳/--deep-if-due)；全量 **192 passed**。顺带修了两个在我改动前就已经失败的时间炸弹测试（`test_episodes.py` 硬编码 07:00 UTC）。
+
+### QQ 官方机器人频道（2026-10-26 01:00–01:05 CST，已部署云端并跑通验签闭环）
+
+动机：按 docs/QQ 里的凭据给 1144820556 发消息失败——官方平台只认 openid，不提供 QQ 号→openid 的映射。用户随后自己也发了一条「你好」，而云端 L1 里最新一条还是 00:02 的 IDENTITY bootstrap note：消息根本没到他身上，因为平台上没有任何回调地址，事件进了黑洞。这条通道不是「再写一个 IM 适配器」，而是要先把一个真实的公网入口建起来。
+
+- **纯 stdlib Ed25519**（`src/yugang/gateway/channels/ed25519.py`）。云端 python3.13 没有 cryptography、没有 nacl，而仓库一直是零依赖运行时，所以按 RFC 8032 自己实现扩展坐标的点加/倍乘、签名与验签，并使用平台文档的规则：secret 重复到 ≥32 字节取前 32 字节作 seed。用 RFC 8032 test1/test2 和平台公布的 conformance 对（seed → `d7c362fe78aef81ff23287b493628b5db02a3c4fe30b215e4d19609b5d76673a`）钉住；本机真实 secret 导出的公钥是 `168af1bb0570552917f4123c22c3ed316e8761b40ffd9341457114d5f369b758`。非常数时间，只用于平台自己的 bot secret，docstring 写明不得复用到别处。
+- **openid 的不对称决定了整个设计**：只有收到一条消息才知道对方的 openid。所以 `allowed_openids` 之外的 openid **不回复、不调模型**，但把这条消息以 `system/note` 写进 L1，带 `openid`、`untrusted=true`、`origin=qq` 与「把它加进 qq.allowed_openids 之后她才会看到」的说明。不回复是 fail-closed；不记录就永远无法放行。
+- **无 secret 拒绝启动**。能以她的身份回答的公网端点比没有 IM 更糟。
+- **先 200，再思考**。handler 只做验签、按 event id 去重、入队，然后立刻 `200`；平台几秒内收不到就会重投，等模型就等于每条消息都收两遍。跨重启的重投由 store 的 `external_id` 去重兜住，所以不额外做时间戳新鲜度检查（拒绝一个迟到的真实重投，比丢一条消息更糟）。
+- **被动回复**：回复带 `msg_id`，否则平台按主动消息处理（有配额、可能被拒）。为此 `GatewayService._reply_meta` 透传 `msg_id`，其余通道忽略这个键。
+- **只收 C2C_MESSAGE_CREATE**：群消息、频道消息、别的 bot 的私信都不是她的通道。
+- **部署**：`deploy/yugang-qq.nginx.conf` 让 `ayu.dsh.kwelldo.cn` 只公开一个路径 `/qq/event` → `127.0.0.1:3196`，其余 404；她的鱼缸页、HTTP API、整具身体仍然只在 loopback。`YUGANG_QQ_APP_SECRET` 进 `/etc/dafeiyu-dsh.env`（root 0600），`config.json` 关掉 `qq.allowed_openids` 起步。
+- 云端实证（01:02–01:03 CST）：`/health` 的 channels 里出现 `qq: {healthy: true, received: 0, allowlist: []}`；对 `https://ayu.dsh.kwelldo.cn/qq/event` 发真实签名的 op13 挑战，返回 `{"plain_token":"probe-token","signature":"0a61ede9…6209"}` 且与本地独立计算一致；未签名 POST 返回 403；`/` 返回 404。
+- 测试：新增 `tests/test_ed25519.py`(8) 与 `tests/test_qq_official.py`(14，含坏签名 403、挑战回显、未知 openid 只写 L1、已授权进队列、重投去重、群消息忽略、分片与 msg_id 透传、无 secret 不启动、网关端到端回复)；全量 **214 passed**。
+- 提交 `7959898`（channel + 接线）、`7adf137`（文档），已 push origin master。
+- **仍未闭环**：回调地址必须在 q.qq.com 后台登记为 `https://ayu.dsh.kwelldo.cn/qq/event`（Webhook 模式）才会有真实事件；登记由操作员完成，之后他发一条消息 → L1 里出现带 openid 的 note → 把 openid 写进 `qq.allowed_openids` 并重启 → 她才会真正看到并回复。
+
