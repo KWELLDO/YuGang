@@ -66,6 +66,11 @@ class WakeContext:
     self_history: list[Any] = field(default_factory=list)
     episodes: list[Any] = field(default_factory=list)
     body: dict[str, Any] | None = None
+    # The same prompt, cut in two. stable_prompt only changes when her memory of
+    # herself changes; volatile_prompt changes on every visit. Only the stable half
+    # goes into the system message, which is what lets a provider prefix cache hit.
+    stable_prompt: str = ""
+    volatile_prompt: str = ""
 
 
 def _gap_seconds(now: datetime, last_ts: str | None) -> float | None:
@@ -388,6 +393,7 @@ def build_wake_context(
             lines.append(f"- [{message.id}] {message.sender or message.channel}：{message.content[:500]}")
         lines.append("")
     prompt = "\n".join(lines)
+    stable_prompt, volatile_prompt = split_prompt(prompt)
     return WakeContext(
         prompt=prompt,
         self_text=self_text,
@@ -406,36 +412,81 @@ def build_wake_context(
         practices=practices,
         self_history=self_history,
         body=body,
+        stable_prompt=stable_prompt,
+        volatile_prompt=volatile_prompt,
     )
+
+
+_VOLATILE_PREFIXES = (
+    "## 主观时间",
+    "## 我的身体状态",
+    "## 我最近的生活片段",
+    "## 最近的 L1",
+    "## 与这次醒来相关的旧记忆",
+    "## 还没处理的留言",
+)
+
+READINGS_PREAMBLE = "下面是系统在你这次清醒开始时给的读数；不是你写的，也不是他说的。"
+
+
+def split_prompt(prompt: str) -> tuple[str, str]:
+    """Cut the wake context into (stable, volatile).
+
+    Anything that changes on every visit - the clock, the body counters, the
+    passages retrieval just returned - belongs in the user turn. Whatever is left in
+    the system message is expected to be byte-identical next time, which is the only
+    way a provider prefix cache can hit at all.
+    """
+    stable: list[str] = []
+    volatile: list[str] = []
+    bucket = stable
+    for line in (prompt or "").splitlines():
+        if line.startswith("## "):
+            bucket = volatile if line.startswith(_VOLATILE_PREFIXES) else stable
+        bucket.append(line)
+    return "\n".join(stable).strip(), "\n".join(volatile).strip()
+
+
+def _stable_block(context: WakeContext) -> str:
+    return context.stable_prompt or context.prompt
+
+
+def _user_turn(context: WakeContext, body: str, *, heading: str) -> str:
+    parts: list[str] = []
+    if context.volatile_prompt:
+        parts.append(READINGS_PREAMBLE)
+        parts.append(context.volatile_prompt)
+    parts.append(f"## {heading}\n\n{body}")
+    return "\n\n".join(parts)
 
 
 def build_messages(
     context: WakeContext, user_message: str, *, tools_enabled: bool = True
 ) -> list[dict[str, str]]:
-    system = (WAKE_SYSTEM if tools_enabled else WAKE_SYSTEM_NO_TOOLS) + "\n\n" + context.prompt
+    system = (WAKE_SYSTEM if tools_enabled else WAKE_SYSTEM_NO_TOOLS) + "\n\n" + _stable_block(context)
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": user_message},
+        {"role": "user", "content": _user_turn(context, user_message, heading="他这次说的")},
     ]
 
 
 def morning_check_messages(
     context: WakeContext, reason: str = "每日保底", *, tools_enabled: bool = True
 ) -> list[dict[str, str]]:
-    system = (WAKE_SYSTEM if tools_enabled else WAKE_SYSTEM_NO_TOOLS) + "\n\n" + context.prompt
+    system = (WAKE_SYSTEM if tools_enabled else WAKE_SYSTEM_NO_TOOLS) + "\n\n" + _stable_block(context)
     if "闹钟" in reason:
-        user = (
+        body = (
             "这是你自己设的闹钟把你叫醒，没有人在等你回消息。\n"
             "先确认现在是什么时间、上次睡去是什么时候；然后判断：你当时设这个闹钟是想做什么？"
             "如果这件事还值得做，就做一点；如果不值得了，就写一句为什么。不要为了产出而产出。"
         )
     else:
-        user = (
+        body = (
             "现在是每日保底醒来。没有人在等你回消息。\n"
             "读一遍记忆，判断：今天值不值得做一件事？如果值得，写一句你打算做什么；"
             "如果不值得，就写一句你今天的状态。不要为了产出而产出。"
         )
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": user},
+        {"role": "user", "content": _user_turn(context, body, heading="现在")},
     ]

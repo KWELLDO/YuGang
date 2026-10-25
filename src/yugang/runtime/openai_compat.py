@@ -9,6 +9,30 @@ from typing import Any
 from .base import Completion, estimate_tokens
 
 
+def parse_usage(
+    usage: dict[str, Any], *, prompt_text: str, output_text: str
+) -> tuple[int, int, int, int]:
+    """Split one provider usage block into (input, output, cache_hit, cache_miss).
+
+    Both cache counts stay 0 when the provider reports no cache fields. That is a
+    deliberate "unknown" reading: turning it into a 0% hit rate would look exactly
+    like a cache that never works.
+    """
+    input_tokens = int(usage.get("prompt_tokens") or estimate_tokens(prompt_text))
+    output_tokens = int(usage.get("completion_tokens") or estimate_tokens(output_text))
+    detail = usage.get("prompt_tokens_details") or {}
+    hit = usage.get("prompt_cache_hit_tokens")
+    if hit is None:
+        hit = detail.get("cached_tokens")
+    hit_tokens = max(0, int(hit or 0))
+    miss = usage.get("prompt_cache_miss_tokens")
+    if miss is None:
+        miss_tokens = max(0, input_tokens - hit_tokens) if hit is not None else 0
+    else:
+        miss_tokens = max(0, int(miss))
+    return input_tokens, output_tokens, hit_tokens, miss_tokens
+
+
 class OpenAICompatRuntime:
     """Minimal OpenAI-compatible chat-completions client (stdlib only)."""
 
@@ -91,12 +115,17 @@ class OpenAICompatRuntime:
             raise RuntimeError(f"model returned empty content: {body[:400]}")
         usage = parsed.get("usage") or {}
         prompt_text = "\n".join(str(m.get("content") or "") for m in messages)
+        input_tokens, output_tokens, cache_hit, cache_miss = parse_usage(
+            usage, prompt_text=prompt_text, output_text=text
+        )
         return Completion(
             text=text,
-            input_tokens=int(usage.get("prompt_tokens") or estimate_tokens(prompt_text)),
-            output_tokens=int(usage.get("completion_tokens") or estimate_tokens(text)),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             model=str(parsed.get("model") or self.model),
             finish_reason=finish_reason,
             tool_calls=tool_calls,
             raw=parsed,
+            cache_hit_tokens=cache_hit,
+            cache_miss_tokens=cache_miss,
         )

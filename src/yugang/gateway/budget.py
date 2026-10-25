@@ -101,18 +101,44 @@ class BudgetGuard:
             int(getattr(completion, "input_tokens", 0)) / 1_000_000.0 * price_in
             + int(getattr(completion, "output_tokens", 0)) / 1_000_000.0 * price_out
         )
+        day = day_key(now, getattr(self.config, "timezone", "Asia/Shanghai"))
+        ts = now_iso() if now is None else now.isoformat(timespec="microseconds")
+        input_tokens = int(getattr(completion, "input_tokens", 0))
         self.store.record_budget(
-            day_key(now, getattr(self.config, "timezone", "Asia/Shanghai")),
+            day,
             kind,
             cost,
             model=getattr(completion, "model", None),
-            input_tokens=int(getattr(completion, "input_tokens", 0)),
+            input_tokens=input_tokens,
             output_tokens=int(getattr(completion, "output_tokens", 0)),
             note=note,
-            ts=now_iso() if now is None else now.isoformat(timespec="microseconds"),
+            ts=ts,
         )
+        hit = int(getattr(completion, "cache_hit_tokens", 0) or 0)
+        miss = int(getattr(completion, "cache_miss_tokens", 0) or 0)
+        if hit or miss:
+            self.store.record_cache_usage(
+                day,
+                kind,
+                model=getattr(completion, "model", None),
+                input_tokens=input_tokens,
+                cache_hit_tokens=hit,
+                cache_miss_tokens=miss,
+                cost_cny=cost,
+                ts=ts,
+            )
         self._maybe_notice(user_facing=user_facing, now=now)
         return cost
+
+    def cache(self, now: datetime | None = None) -> dict[str, Any]:
+        """Today's prefix-cache reading, in tokens.
+
+        Deliberately not converted into a saved-CNY figure: the price table has no
+        cache discount, so a converted number would be one nobody can check against
+        an actual bill.
+        """
+        day = day_key(now or self.now(), getattr(self.config, "timezone", "Asia/Shanghai"))
+        return self.store.cache_summary(day)
 
     def _maybe_notice(self, *, user_facing: bool, now: datetime) -> None:
         stage = self.stage(now)

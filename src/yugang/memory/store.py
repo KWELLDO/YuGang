@@ -1627,6 +1627,69 @@ class MemoryStore:
             by_kind=self.budget_by_kind(day),
         )
 
+    def record_cache_usage(
+        self,
+        day: str,
+        kind: str,
+        *,
+        model: str | None = None,
+        input_tokens: int = 0,
+        cache_hit_tokens: int = 0,
+        cache_miss_tokens: int = 0,
+        cost_cny: float = 0.0,
+        ts: str | None = None,
+    ) -> None:
+        """Keep the provider's own cache accounting beside the money it charges."""
+        self.conn.execute(
+            "INSERT INTO cache_ledger(id, ts, day, kind, model, input_tokens, "
+            "cache_hit_tokens, cache_miss_tokens, cost_cny) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                new_id("cache"),
+                ts or now_iso(),
+                day,
+                kind,
+                model,
+                int(input_tokens),
+                int(cache_hit_tokens),
+                int(cache_miss_tokens),
+                float(cost_cny),
+            ),
+        )
+
+    def cache_summary(self, day: str) -> dict[str, Any]:
+        """Today's cache numbers, in tokens. No money is derived from them."""
+        rows = self.conn.execute(
+            "SELECT kind, COUNT(*) AS calls, COALESCE(SUM(input_tokens), 0) AS input_tokens, "
+            "COALESCE(SUM(cache_hit_tokens), 0) AS hit, COALESCE(SUM(cache_miss_tokens), 0) AS miss "
+            "FROM cache_ledger WHERE day = ? GROUP BY kind",
+            (day,),
+        ).fetchall()
+        by_kind: dict[str, dict[str, int]] = {}
+        calls = total_input = hit = miss = 0
+        for row in rows:
+            name = str(row["kind"])
+            by_kind[name] = {
+                "calls": int(row["calls"]),
+                "input_tokens": int(row["input_tokens"]),
+                "cache_hit_tokens": int(row["hit"]),
+                "cache_miss_tokens": int(row["miss"]),
+            }
+            calls += int(row["calls"])
+            total_input += int(row["input_tokens"])
+            hit += int(row["hit"])
+            miss += int(row["miss"])
+        reported = hit + miss
+        return {
+            "day": day,
+            "calls": calls,
+            "input_tokens": total_input,
+            "cache_hit_tokens": hit,
+            "cache_miss_tokens": miss,
+            "reported": reported > 0,
+            "hit_ratio": round(hit / reported, 4) if reported else None,
+            "by_kind": by_kind,
+        }
+
     # -------------------------------------------------------------------- misc
 
     def ref_exists(self, ref: str) -> bool:

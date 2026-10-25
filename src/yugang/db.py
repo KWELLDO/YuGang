@@ -189,6 +189,19 @@ CREATE TABLE IF NOT EXISTS budget_ledger (
 );
 CREATE INDEX IF NOT EXISTS idx_budget_day ON budget_ledger(day, kind);
 
+CREATE TABLE IF NOT EXISTS cache_ledger (
+  id TEXT PRIMARY KEY,
+  ts TEXT NOT NULL,
+  day TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  model TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_hit_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_miss_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_cny REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_cache_day ON cache_ledger(day, kind);
+
 CREATE TABLE IF NOT EXISTS recall_log (
   id TEXT PRIMARY KEY,
   ts TEXT NOT NULL,

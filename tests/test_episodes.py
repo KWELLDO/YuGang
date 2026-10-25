@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -10,6 +10,17 @@ import json
 
 from yugang.protocol.sleep import SleepResult, apply_sleep_result, parse_sleep_output
 from yugang.protocol.wake import build_wake_context
+
+
+def _after_latest(store, minutes: int = 5) -> datetime:
+    """A clock reading that is genuinely later than the events just written.
+
+    Hardcoded 2026-10-25 wall-clock values start out in the future and quietly turn
+    into the past, at which point a sleep looks like it ended before it began.
+    """
+    latest = store.last_event_ts()
+    base = datetime.fromisoformat(latest) if latest else datetime.now(timezone.utc)
+    return base + timedelta(minutes=minutes)
 
 
 def test_episode_is_append_only_and_searchable(store):
@@ -55,7 +66,7 @@ def test_parse_sleep_output_reads_an_episode():
 
 def test_sleep_creates_an_episode_backed_by_real_window_events(store, cfg):
     evidence = store.append_event("human", "message", "你还记得上一次睡去前在做什么吗？")
-    now = datetime(2026, 10, 25, 7, 0, tzinfo=timezone.utc)
+    now = _after_latest(store)
     applied = apply_sleep_result(
         store,
         cfg,
@@ -128,7 +139,7 @@ def test_sleep_creates_a_diary_index_when_the_model_omits_an_episode(store, cfg)
         store,
         cfg,
         SleepResult(diary="今天只发生了一件事：我检查了记忆链。", parsed=True),
-        now=datetime(2026, 10, 25, 7, 1, tzinfo=timezone.utc),
+        now=_after_latest(store, minutes=1),
     )
     episode = store.get_episode(applied["episode"])
     assert episode.origin == "diary"

@@ -197,7 +197,12 @@ def test_onebot_round_trip_through_the_gateway(tmp_path, monkeypatch):
         while time.time() < deadline and not _FakeOneBot.calls:
             time.sleep(0.05)
         assert _FakeOneBot.calls, "the gateway never called the OneBot API"
-        assert _FakeOneBot.calls[0]["payload"]["message"][0]["data"]["text"] == "收到：在吗"
+        reply = _FakeOneBot.calls[0]["payload"]["message"][0]["data"]["text"]
+        # Her readings and his words now arrive in one labelled turn; what must not
+        # change is that his exact words reach the model, marked as his.
+        assert reply.startswith("收到：")
+        assert reply.endswith("在吗")
+        assert "## 他这次说的" in reply
         assert store.latest_event("wake") is not None
         assert any(event.channel == "onebot" for event in store.events(limit=20))
     finally:

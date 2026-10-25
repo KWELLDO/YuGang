@@ -118,16 +118,24 @@ def test_second_message_in_same_window_is_a_continuation(cfg, store):
         assert service.chat("第二句", timeout=1) == "嗯。"
     finally:
         service.stop()
-    second_prompt = runtime.calls[1]["messages"][0]["content"]
-    assert "同一次清醒" in second_prompt
-    assert "第一次醒来" not in second_prompt
+    second_turn = runtime.calls[1]["messages"]
+    second_prompt = second_turn[0]["content"]
+    latest_turn = second_turn[-1]["content"]
+    # The continuation marker is a per-visit reading, so it now travels in the user
+    # turn: the system message stays byte-identical, which is what lets a provider
+    # prefix cache hit on the second message of the same window.
+    assert "同一次清醒" in latest_turn
+    assert "同一次清醒" not in second_prompt
+    assert "第一次醒来" not in latest_turn
     assert len(store.events(kind="wake")) == 1
     # The second call carries the actual first exchange, not only its L1 echo.
     second_messages = runtime.calls[1]["messages"]
     assert [m["role"] for m in second_messages] == ["system", "user", "assistant", "user"]
+    # History keeps his words plain; only the newest turn carries the readings, so
+    # the transcript does not grow a copy of the clock on every exchange.
     assert second_messages[1]["content"] == "第一句"
     assert second_messages[2]["content"] == "嗯。"
-    assert second_messages[3]["content"] == "第二句"
+    assert second_messages[3]["content"].endswith("## 他这次说的\n\n第二句")
 
 
 def test_inline_awareness_is_recorded_before_reply_and_hidden(cfg, store):

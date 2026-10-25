@@ -1083,6 +1083,7 @@ class GatewayService:
             "chain": {"ok": chain_ok, "bad_event": chain_bad},
             "budget": _jsonable(summary),
             "budget_stage": self.budget.stage(now),
+            "cache": self.budget.cache(now),
             "channels": [getattr(c, "name", type(c).__name__) for c in self.channels],
             "channel_health": self._channel_health(),
             "started_at": self.started_at,
