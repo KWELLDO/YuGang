@@ -300,6 +300,28 @@ def cmd_audit(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_probe(args: argparse.Namespace) -> int:
+    """从进程外面检查她的身体：网关是否应答、记忆是否可信、钱和磁盘够不够。"""
+    from .health import append_history, collect_health, transition, write_health
+
+    cfg = load_config(args)
+    store = make_store(cfg)
+    try:
+        runtime = None
+        if args.deep:
+            runtime = make_runtime(cfg, mock=bool(getattr(args, "mock", False)))
+        payload = collect_health(store, cfg, deep=bool(args.deep), runtime=runtime)
+        if args.write:
+            payload["written"] = write_health(cfg, payload)
+            payload["history_kept"] = append_history(cfg, payload)
+        if args.alert:
+            payload["alert"] = transition(store, cfg, payload)
+        _print_json(payload)
+        return 0 if payload["ok"] else 1
+    finally:
+        store.close()
+
+
 def cmd_persona_check(args: argparse.Namespace) -> int:
     """只读检查：她的自我文件醒来时到底注入多少、哪里重复、哪里没日期、有没有凭据。"""
     cfg = load_config(args)
@@ -570,6 +592,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("persona-check", help="只读检查：SELF.md/IDENTITY.md 的注入预算、重复、日期与凭据")
     p.set_defaults(func=cmd_persona_check)
+
+    p = sub.add_parser("probe", help="从进程外体检：网关应答、记忆、磁盘、预算；--deep 真跑一次模型")
+    p.add_argument("--deep", action="store_true", help="花一次极小的模型调用，验证凭据和网络还通")
+    p.add_argument("--write", action="store_true", help="写 health.json 与 history.jsonl")
+    p.add_argument("--alert", action="store_true", help="状态变化时写一条 L1（抑制重复告警）")
+    p.set_defaults(func=cmd_probe)
 
     p = sub.add_parser("serve", help="启动常驻网关")
     p.set_defaults(func=cmd_serve)
