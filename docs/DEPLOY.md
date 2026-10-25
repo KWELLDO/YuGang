@@ -85,6 +85,18 @@ curl -fsS -X POST http://127.0.0.1:3198/resume \
 
 `/status` exposes `paused` and `pause.reason`; `/sleep` returns 409 while paused.
 
+`GET /audit` (authenticated) runs the same read-only memory audit as the CLI. It returns
+200 when the body is clean and 409 when it has problems; the JSON still carries the full
+report. It never repairs or rewrites anything.
+
+```bash
+curl -fsS -H "Authorization: Bearer $YUGANG_HTTP_TOKEN" http://127.0.0.1:3198/audit
+sudo -u dafeiyu env PYTHONPATH=/home/dafeiyu/yugang/src \
+  python3 -m yugang --home /home/dafeiyu/.yugang audit
+```
+
+The CLI exits 1 when `problems` is non-empty, so it can be used as a deployment gate.
+
 A small client wraps this so a phone/laptop only needs the existing SSH access:
 
 ```bash

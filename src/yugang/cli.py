@@ -14,6 +14,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from .audit import audit_memory
 from .config import Config
 from .gateway.budget import BudgetGuard
 from .gateway.channels.base import NullChannel
@@ -285,6 +286,17 @@ def cmd_episodes(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_audit(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    store = MemoryStore(cfg.db_path)
+    try:
+        report = audit_memory(store, cfg)
+        _print_json(report)
+        return 0 if report["ok"] else 1
+    finally:
+        store.close()
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     cfg = load_config(args)
     channels: list[Any] = []
@@ -535,6 +547,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--query", default="", help="按标题/摘要搜索")
     p.add_argument("--limit", type=int, default=20)
     p.set_defaults(func=cmd_episodes)
+
+    p = sub.add_parser("audit", help="只读体检：哈希链、证据、备份与未闭合事项")
+    p.set_defaults(func=cmd_audit)
 
     p = sub.add_parser("serve", help="启动常驻网关")
     p.set_defaults(func=cmd_serve)

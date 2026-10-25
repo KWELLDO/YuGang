@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from ..audit import audit_memory
 from ..ids import day_key, now_iso, parse_ts, utcnow
 from ..memory.tools import MemoryToolbox
 from ..protocol.sleep import SleepResult, apply_sleep_result, build_sleep_messages, parse_sleep_output
@@ -1059,6 +1060,10 @@ class GatewayService:
             "channel_health": self._channel_health(),
             "started_at": self.started_at,
         }
+
+    def audit(self) -> dict[str, Any]:
+        """Run the read-only memory audit. Never repairs anything."""
+        return _jsonable(audit_memory(self.store, self.config, now=self.now_fn()))
 
     def tank(self) -> dict[str, Any]:
         self_text = self.store.current_self() or ""

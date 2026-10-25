@@ -241,3 +241,24 @@ Rules:
 - The reply event's L1 `meta.tools` records only tool names and success/failure, not the
   full tool output. The full output is part of the model request, not a new memory.
 - Setting `memory_tools_enabled = false` turns the loop off entirely.
+
+## Read-only audit
+
+`yugang audit` (and authenticated `GET /audit`) answers a different question from
+`verify`: not only "is the hash chain intact?" but "would a future reader still be able
+to check what this body claims?". It never writes, repairs, or redacts. It reports:
+
+- L1 hash chain, event count, first/last timestamps;
+- the current SELF version, and whether every section and version evidence id still
+  resolves (missing and redacted are both problems);
+- current L2 judgments without a falsifier or with dead evidence;
+- open / needs-evidence awareness cards with dead evidence;
+- active practices whose original evidence is gone, and practices never checked for
+  more than seven days (warning);
+- episodes whose `event_ids` no longer resolve, and open loops with dead evidence or
+  no movement for more than fourteen days (warning);
+- orphan citation confirmations;
+- the newest backup manifest: integrity, chain status, and age (warning after 48h).
+
+Problems make the report `ok: false` and the CLI exits 1. Warnings do not. An audit is a
+reading of the body, not a modification of it; a redacted evidence id stays redacted.

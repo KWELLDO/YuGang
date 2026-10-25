@@ -118,6 +118,7 @@ def test_http_channel_auth_health_and_synchronous_reply(running):
         assert health_body["ok"] is True
         assert health_body["worker_alive"] is True
         assert _request(port, "GET", "/status")[0] == 401
+        assert _request(port, "GET", "/audit")[0] == 401
         assert _request(port, "POST", "/message", {"content": "你好"})[0] == 401
 
         status, payload = _request(
@@ -145,6 +146,11 @@ def test_http_channel_auth_health_and_synchronous_reply(running):
         status3, status_payload = _request(port, "GET", "/status", token="s3cret")
         assert status3 == 200
         assert status_payload["channels"] == []
+
+        audit_status, audit_payload = _request(port, "GET", "/audit", token="s3cret")
+        assert audit_status in (200, 409)
+        assert "events" in audit_payload and "self" in audit_payload
+        assert isinstance(audit_payload.get("problems"), list)
     finally:
         channel.stop()
 

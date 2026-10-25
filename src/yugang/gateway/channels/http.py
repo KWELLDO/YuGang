@@ -420,6 +420,14 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/tank":
             self._json(200, self.channel.service.tank())
             return
+        if path == "/audit":
+            try:
+                report = self.channel.service.audit()
+            except Exception as exc:  # noqa: BLE001 - report, never crash the gateway
+                self._json(500, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+                return
+            self._json(200 if report.get("ok") else 409, report)
+            return
         if path == "/replies":
             self._json(200, {"replies": list(self.channel.replies)})
             return

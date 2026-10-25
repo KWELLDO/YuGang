@@ -115,6 +115,11 @@ def _strip_evidence(body: str) -> str:
     return _EVIDENCE_COMMENT.sub("", body or "").strip()
 
 
+def section_evidence(text: str, name: str) -> list[str]:
+    """Evidence ids attached to one section, in document order."""
+    return _evidence_refs(get_section(text, name) or "")
+
+
 def apply_self_edits(
     text: str,
     edits: list[dict[str, Any]],
