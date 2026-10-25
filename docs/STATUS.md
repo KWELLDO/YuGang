@@ -377,3 +377,14 @@
   - 在 drill 身体里追加一条只属于演练的事件（159），再用同备份 `--force` 恢复：生成 `pre_restore_backup=/home/dafeiyu/.yugang-restore-drill/backups/yugang-20261024T234552186530.db`，恢复后 158 events，演练事件消失，恢复 note 仍在，chain ok。
   - 生产 `yugang.service` 仍 active/asleep、events=270、未被恢复演练修改。
 - 文档：README 与 `docs/DEPLOY.md` 的备份节已改为「先停网关 → dry-run → restore → 启网关」，并写明默认拒绝覆盖、force 前自动备份、失败回滚；备份仍含她的记忆，目录权限保持 0700 / 0600。
+
+### 醒着时的只读记忆工具（08:07 CST，已部署并真实验证）
+
+- 动机：醒来时预装的上下文是固定窗口；她此前只能读系统替她选的最近事件、回忆命中和片段，不能在自己觉得需要核对时主动查旧 L1。真正的记忆组件应允许按需检索，但自我修订仍必须留在睡去协议里，不能在聊天中静默改写历史。
+- 新增 9 个只读工具（`src/yugang/memory/tools.py`）：`memory_search`、`memory_get`、`recent_events`、`episode_search`、`self_read`、`self_history`、`judgment_list`、`practice_list`、`open_loops`。结果是带真实 event id 的材料，不是命令；未知工具、坏参数、缺失事件返回 `{"ok": false, ...}` 给模型，不使网关崩溃。
+- 工具只在聊天回复与自主醒来时开放；睡去整理不接工具，自我修订仍走带证据审计的 sleep 协议。最多 `max_tool_rounds=3` 轮；每轮都走同一日元预算闸门，工具 schema 与工具结果都按输入计费，预算不足时 fail-loud，而不是静默继续检索。
+- 回复事件的 L1 `meta.tools` 只记录工具名与成功/失败，不把完整工具输出写进新记忆；完整输出只属于那次模型请求。`memory_tools_enabled=false` 可完全关闭工具循环，此时提示词也不含工具段。
+- 新增 `tests/test_memory_tools.py` 5 个测试（聊天中调 `memory_get` 并在 reply meta 记录、超过轮次 fail-loud、未知工具回给模型、关闭后 prompt 无工具段且 `tool_count=0`、9 个工具对真实记忆全部可运行），另有自主醒来调工具的测试；全量 **135 passed**。
+- commit `53b6d23 feat(memory): let her look things up while she is awake` 已 push origin master 并部署到 `/home/dafeiyu/yugang`；重启后 `/health` 为 `ok=true, degraded=false, worker_alive=true`。
+- 08:07:16 真实验证：操作员故意给了一个不存在的时间点「2026-10-25 00:30 CST 第一次醒来」，要求先查记忆再说。她调用 `memory_search` 三次（「00:30 wake」「00:30 醒来」等）与 `recent_events` 一次，全部成功；reply 事件 `evt_20261025T000723407440_6cb31e` 的 meta 记录四次工具调用。她没有把不存在的事件圆过去，而是说明 L1 里没有这个 wake、指出可能是把 UTC 16:30 当成 CST 00:30，并给出一条真实替代事件 `evt_20261024T165014440447_92abe9`（16:50:10 UTC 的睡去日记）。这说明工具是只读材料，最终判断仍由她基于 L1 做。
+- 本次回复经历 3 次模型轮次，budget_ledger 记录三笔 chat：0.021136 + 0.030806 + 0.052086 元，合计约 0.104 元；云端 events=273、chain ok、budget 1.683868/5 元（chat 0.702192 + sleep 0.943028 + autonomous 0.038648），yugang.service active，email poller healthy。
