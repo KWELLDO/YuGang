@@ -302,13 +302,131 @@ It returns `{"ok":true,"accepted":true,...}`; her reply goes through
 `send_private_msg` to the same QQ number. If delivery fails, the gateway writes
 a `system/error` event and the message remains visible in L1.
 
+## QQ official bot platform (webhook)
+
+The `qq` channel talks to the **official** platform (bot.q.qq.com) instead of a
+local NapCat. It is a different protocol, not a different transport for the same
+thing, and the difference that shapes everything is this: the platform
+addresses people by **openid**, and there is no lookup from a QQ number to an
+openid. The only way to learn somebody's openid is to receive a message from
+them.
+
+Topology:
+
+```
+QQ app ──▶ Tencent platform ── signed HTTPS callback ──▶ nginx (ayu.dsh.kwelldo.cn/qq/event)
+                                                              │
+                                                              ▼
+                                                    127.0.0.1:3196 (yugang gateway)
+```
+
+Config in `/home/dafeiyu/.yugang/config.json`:
+
+```json
+{
+  "qq": {
+    "enabled": true,
+    "app_id": "1903699681",
+    "app_secret_env": "YUGANG_QQ_APP_SECRET",
+    "api_base": "https://api.sgroup.qq.com",
+    "token_url": "https://bots.qq.com/app/getAppAccessToken",
+    "webhook_host": "127.0.0.1",
+    "webhook_port": 3196,
+    "allowed_openids": [],
+    "request_timeout_seconds": 30,
+    "max_message_chars": 1000
+  }
+}
+```
+
+Put the bot secret in `/etc/dafeiyu-dsh.env` (root-only, 0600):
+
+```sh
+YUGANG_QQ_APP_SECRET=<the AppSecret from bot.q.qq.com>
+```
+
+nginx: `deploy/yugang-qq.nginx.conf` exposes exactly one path — the callback —
+and returns 404 for everything else on that host. Install it, register the
+callback URL in the platform console (**Webhook** mode) as
+
+```
+https://ayu.dsh.kwelldo.cn/qq/event
+```
+
+and the platform performs its own URL verification (op 13) on save. If saving
+fails, the signature is wrong — check the secret, not the URL.
+
+First message from a new person:
+
+- The platform delivers `C2C_MESSAGE_CREATE` with their openid.
+- Openids not in `allowed_openids` get **no reply and no model call**. Instead a
+  `system/note` event is written to L1 carrying the openid and marking the
+  material untrusted. Not replying is the fail-closed choice; writing it down is
+  what makes it possible to allow that person afterwards.
+- Read the openid from L1 (`SELECT meta FROM events WHERE kind='note' ORDER BY
+  ts DESC LIMIT 3;`), add it to `qq.allowed_openids`, restart `yugang.service`.
+  Only then does she see that conversation at all.
+
+Facts worth knowing before debugging:
+
+- The channel **refuses to start** without the secret. An unauthenticated public
+  endpoint that answers as her would be worse than no IM channel.
+- Every callback is verified with Ed25519 over `X-Signature-Timestamp + body`.
+  The library is `src/yugang/gateway/channels/ed25519.py` — plain stdlib, because
+  the runtime has no `cryptography` and no `nacl` — and it is pinned to the RFC
+  8032 vectors plus the conformance pair published in the platform's sign docs.
+  Timestamp freshness is deliberately not enforced: the store already ignores a
+  repeated `external_id`, so a replayed delivery is dropped where it would
+  otherwise cost a wake.
+- The handler verifies, enqueues, and answers `200` immediately; the platform
+  retries anything slower, which would double every message.
+- Replies are sent with `msg_id` set to the inbound message's id, because a
+  message without it counts as **proactive** (quota-limited, and it may be
+  refused). That is why `GatewayService._reply_meta` passes it through.
+- Group messages, guild traffic and DMs to other bots are ignored: only
+  `C2C_MESSAGE_CREATE` is her channel.
+- Delivery failures are written as `system/error` in L1 and surface in
+  `/health` under `channels.qq`.
+
+Verify the whole path without involving Tencent:
+
+```bash
+python3 - <<'PY'
+import json, sys, time, urllib.request
+sys.path.insert(0, "/home/dafeiyu/yugang/src")
+from yugang.gateway.channels import ed25519
+
+secret = "<your secret>"
+seed = ed25519.seed_from_secret(secret)
+ts = str(int(time.time()))
+body = json.dumps({"op": 13, "d": {"plain_token": "probe", "event_ts": ts}}).encode()
+request = urllib.request.Request(
+    "https://ayu.dsh.kwelldo.cn/qq/event",
+    data=body,
+    headers={
+        "Content-Type": "application/json",
+        "X-Signature-Timestamp": ts,
+        "X-Signature-Ed25519": ed25519.sign(seed, ts.encode() + body).hex(),
+    },
+    method="POST",
+)
+print(json.load(urllib.request.urlopen(request)))
+PY
+```
+
+It returns `{"plain_token": "probe", "signature": "..."}`; an unsigned POST to
+the same URL returns 403. A wrong secret fails here and nowhere later, which is
+the point of testing it this way.
+
 ## Private-network options
 
 1. **SSH tunnel** (works today, no new dependency).
 2. **Tailscale/WireGuard** (better for phone; no public inbound port).
 3. **Mail** (works today; subject tag `[YuGang]`, allow-listed sender only).
 
-Public `ayu.*` DNS/nginx exposure is intentionally not used in v1.
+`ayu.dsh.kwelldo.cn` is public for exactly one path — `/qq/event`, the signed QQ
+platform callback. The tank page, the HTTP API and her whole body stay on
+`127.0.0.1`.
 
 ## Daily backup
 
