@@ -6,6 +6,7 @@ import pytest
 
 from yugang.config import Config
 from yugang.gateway.service import GatewayService
+from yugang.ids import utcnow
 from yugang.memory.store import MemoryStore
 from yugang.memory.tools import MemoryToolbox
 from yugang.runtime.mock import MockRuntime
@@ -148,6 +149,7 @@ def test_every_declared_tool_runs_against_real_memory(env):
         "judgment_list",
         "practice_list",
         "open_loops",
+        "memory_audit",
     }
     cases = {
         "memory_search": {"query": "深海"},
@@ -159,6 +161,7 @@ def test_every_declared_tool_runs_against_real_memory(env):
         "judgment_list": {"status": "all"},
         "practice_list": {"status": "active"},
         "open_loops": {"limit": 3},
+        "memory_audit": {},
     }
     for name, args in cases.items():
         result = toolbox.run(name, args)
@@ -166,3 +169,19 @@ def test_every_declared_tool_runs_against_real_memory(env):
         assert result["tool"] == name
     assert practice.id
     assert loop.id
+
+
+def test_a_broken_memory_audit_does_not_block_waking(env, monkeypatch):
+    cfg, store = env
+    service = GatewayService(cfg, store, MockRuntime(replies=[]))
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("disk gone")
+
+    monkeypatch.setattr("yugang.gateway.service.memory_health", boom)
+    first = service._memory_health_state(utcnow())
+    second = service._memory_health_state(utcnow())
+    assert first is second
+    assert first["healthy"] is False
+    assert "RuntimeError: disk gone" in first["audit_error"]
+    assert first["problems"]

@@ -249,6 +249,7 @@ answering, the runtime may call a small allowlisted set of **read-only** tools:
 | `judgment_list` | the current L2 view (superseded judgments are excluded) |
 | `practice_list` | active/dropped self-practices plus the latest check |
 | `open_loops` | still-open commitments |
+| `memory_audit` | the same read-only audit below: L1 chain, evidence resolvability, backup freshness, duplicate warnings |
 
 Rules:
 
@@ -262,6 +263,10 @@ Rules:
 - The reply event's L1 `meta.tools` records only tool names and success/failure, not the
   full tool output. The full output is part of the model request, not a new memory.
 - Setting `memory_tools_enabled = false` turns the loop off entirely.
+- `memory_audit` is the compact projection of the read-only audit described below. It
+  reports; it never repairs, rewrites, or hides a problem. A wake also gets a one-line
+  memory-health reading (computed once per waking window). If the audit itself fails, the
+  prompt says the check could not run rather than claiming the memory is healthy.
 
 ## Read-only audit
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from yugang.audit import audit_memory
+from yugang.audit import audit_memory, memory_health
 from yugang.ids import utcnow
 from yugang.selfmodel.self_md import replace_section
 
@@ -156,3 +156,35 @@ def test_audit_warns_about_duplicate_current_judgments(store, cfg):
     assert any("措辞高度相似" in item for item in report["warnings"])
     groups = report["judgments"]["duplicate_groups"]
     assert any(first.id in group and second.id in group for group in groups)
+
+
+def test_memory_health_is_a_compact_projection(store, cfg):
+    event = store.append_event("human", "message", "一次可体检的醒来。")
+    store.add_judgment("我记得这条消息。", "如果查不到这条消息，则被推翻。", [event.id], 0.7)
+    _write_backup_manifest(cfg, store)
+
+    health = memory_health(store, cfg)
+    assert health["healthy"] is True
+    assert health["chain_ok"] is True
+    assert health["bad_event"] is None
+    assert health["events"] == store.event_count()
+    assert health["judgments"] == 1
+    assert health["problem_count"] == 0
+    assert health["backup"]["db_exists"] is True
+    assert health["backup"]["integrity"] == "ok"
+    assert {
+        "healthy",
+        "events",
+        "chain_ok",
+        "self_version",
+        "judgments",
+        "open_cards",
+        "active_practices",
+        "episodes",
+        "open_loops",
+        "backup",
+        "problems",
+        "warnings",
+        "problem_count",
+        "warning_count",
+    } <= set(health)

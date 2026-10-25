@@ -197,6 +197,35 @@ def build_wake_context(
         lines.append("## 我的身体状态（系统读数，不是体验）")
         if body.get("events") is not None:
             lines.append(f"- L1 记忆：{body['events']} 条。")
+        health = body.get("memory_health")
+        if health:
+            if health.get("audit_error"):
+                lines.append(
+                    f"- 记忆体检：无法完成（{health.get('audit_error')}）。"
+                    "这不等于记忆没问题，只等于这次没查成。"
+                )
+            else:
+                backup = health.get("backup") or {}
+                if backup.get("created_at") is None:
+                    backup_text = "还没有可用备份"
+                else:
+                    age = backup.get("age_hours")
+                    age_text = f"{float(age):.1f} 小时前" if age is not None else "时间未知"
+                    backup_text = (
+                        f"{age_text}（{backup.get('events')} 条，"
+                        f"integrity {backup.get('integrity') or '未知'}）"
+                    )
+                lines.append(
+                    f"- 记忆体检：{'通过' if health.get('healthy') else '有问题'}；"
+                    f"L1 链 {'ok' if health.get('chain_ok') else '断裂'}；"
+                    f"最近备份 {backup_text}；"
+                    f"问题 {health.get('problem_count', 0)} 条、"
+                    f"提示 {health.get('warning_count', 0)} 条。"
+                )
+                for problem in (health.get("problems") or [])[:3]:
+                    lines.append(f"  - 问题：{problem}")
+                for warning in (health.get("warnings") or [])[:2]:
+                    lines.append(f"  - 提示：{warning}")
         budget = body.get("budget") or {}
         if budget:
             lines.append(

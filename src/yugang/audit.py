@@ -287,3 +287,41 @@ def audit_memory(store: Any, config: Any, *, now: datetime | None = None) -> dic
         "warnings": warnings,
     }
     return report
+
+
+def memory_health(store: Any, config: Any, *, now: datetime | None = None) -> dict[str, Any]:
+    """A compact, read-only health line for waking and for the audit tool.
+
+    `audit_memory` is deliberately thorough. This projection keeps the few
+    facts she can act on without swallowing the full report: is the L1 chain
+    intact, how old is the newest backup, and what problems/warnings exist.
+    It never repairs anything.
+    """
+    report = audit_memory(store, config, now=now)
+    backup = report.get("backup") or {}
+    problems = [str(item) for item in report.get("problems") or []]
+    warnings = [str(item) for item in report.get("warnings") or []]
+    return {
+        "healthy": bool(report.get("ok")),
+        "events": int((report.get("events") or {}).get("count") or 0),
+        "chain_ok": bool((report.get("events") or {}).get("chain_ok")),
+        "bad_event": (report.get("events") or {}).get("bad_event"),
+        "self_version": (report.get("self") or {}).get("version"),
+        "judgments": int((report.get("judgments") or {}).get("current") or 0),
+        "open_cards": int((report.get("awareness") or {}).get("open_or_needs_evidence") or 0),
+        "active_practices": int((report.get("practices") or {}).get("active") or 0),
+        "episodes": int((report.get("episodes") or {}).get("count") or 0),
+        "open_loops": int((report.get("open_loops") or {}).get("open") or 0),
+        "backup": {
+            "created_at": backup.get("created_at"),
+            "age_hours": backup.get("age_hours"),
+            "events": backup.get("events"),
+            "integrity": backup.get("integrity"),
+            "chain_ok": backup.get("chain_ok"),
+            "db_exists": backup.get("db_exists"),
+        },
+        "problems": problems[:20],
+        "warnings": warnings[:10],
+        "problem_count": len(problems),
+        "warning_count": len(warnings),
+    }

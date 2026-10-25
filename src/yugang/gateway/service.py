@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ..audit import audit_memory
+from ..audit import audit_memory, memory_health
 from ..ids import day_key, now_iso, parse_ts, utcnow
 from ..memory.tools import MemoryToolbox
 from ..protocol.sleep import SleepResult, apply_sleep_result, build_sleep_messages, parse_sleep_output
@@ -76,6 +76,7 @@ class GatewayService:
         self._daily_attempt_day: str | None = None
         self._last_idle_check = 0.0
         self._current_wake_id: str | None = None
+        self._wake_health: dict[str, Any] | None = None
         self._channel_health_cache: dict[str, bool | None] = {}
         self.last_reply: str | None = None
         self.started_at = now_iso()
@@ -712,12 +713,14 @@ class GatewayService:
             trigger_event=trigger_event,
         )
         self._current_wake_id = wake_event.id
+        self._wake_health = None
         self.window.wake(now)
         return wake_event
 
     def _end_wake(self) -> None:
         self.window.sleep()
         self._current_wake_id = None
+        self._wake_health = None
 
     # --------------------------------------------------------------------- idle
     def idle_tick(self) -> None:
@@ -1033,7 +1036,31 @@ class GatewayService:
             "due_alarm": due_alarm,
             "channels": [getattr(c, "name", type(c).__name__) for c in self.channels],
             "paused": self.paused_info() is not None,
+            "memory_health": self._memory_health_state(now),
         }
+
+    def _memory_health_state(self, now: datetime) -> dict[str, Any]:
+        """Audit once per waking window, not on every turn.
+
+        A broken audit must not prevent her from waking. If the check itself
+        fails, she is told that the check failed rather than being told her
+        memory is fine.
+        """
+        if self._wake_health is not None:
+            return self._wake_health
+        try:
+            health = memory_health(self.store, self.config, now=now)
+        except Exception as exc:
+            health = {
+                "healthy": False,
+                "audit_error": f"{type(exc).__name__}: {exc}",
+                "problems": [f"记忆体检无法完成：{type(exc).__name__}: {exc}"],
+                "warnings": [],
+                "problem_count": 1,
+                "warning_count": 0,
+            }
+        self._wake_health = health
+        return health
 
     def status(self) -> dict[str, Any]:
         now = self.now_fn()

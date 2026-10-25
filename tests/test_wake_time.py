@@ -63,6 +63,58 @@ def test_wake_context_reports_body_readings_without_claiming_experience(store, c
     assert "操作员暂停：否" in context.prompt
 
 
+def test_wake_context_reports_memory_health(store, cfg):
+    context = build_wake_context(
+        store,
+        cfg,
+        query="",
+        body={
+            "events": 157,
+            "memory_health": {
+                "healthy": False,
+                "chain_ok": True,
+                "backup": {
+                    "created_at": "2026-10-25T04:15:00+00:00",
+                    "age_hours": 3.2,
+                    "events": 150,
+                    "integrity": "ok",
+                },
+                "problem_count": 1,
+                "warning_count": 1,
+                "problems": ["L2 引用了不存在的证据"],
+                "warnings": ["3 组当前 L2 的措辞高度相似"],
+            },
+        },
+    )
+    assert "记忆体检：有问题" in context.prompt
+    assert "L1 链 ok" in context.prompt
+    assert "最近备份 3.2 小时前（150 条，integrity ok）" in context.prompt
+    assert "问题 1 条、提示 1 条" in context.prompt
+    assert "问题：L2 引用了不存在的证据" in context.prompt
+    assert "提示：3 组当前 L2 的措辞高度相似" in context.prompt
+
+
+def test_wake_context_says_when_memory_health_could_not_run(store, cfg):
+    context = build_wake_context(
+        store,
+        cfg,
+        query="",
+        body={
+            "events": 157,
+            "memory_health": {
+                "healthy": False,
+                "audit_error": "OperationalError: database is locked",
+                "problems": ["记忆体检无法完成"],
+                "warnings": [],
+                "problem_count": 1,
+                "warning_count": 0,
+            },
+        },
+    )
+    assert "记忆体检：无法完成" in context.prompt
+    assert "只等于这次没查成" in context.prompt
+
+
 def test_wake_context_shows_evidence_ids_for_l2_and_cards(store, cfg):
     evidence = store.append_event("human", "message", "一条可以引用的材料")
     judgment = store.add_judgment("这条判断有来源", "如果找不到来源就被推翻", [evidence.id], 0.5)

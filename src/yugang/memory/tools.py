@@ -11,6 +11,7 @@ silently rewrite her own history.
 import json
 from typing import Any, Callable
 
+from ..audit import memory_health
 from ..ids import utcnow
 from ..memory.models import Episode, Event, Judgment, OpenLoop, Practice, SelfVersion
 
@@ -128,6 +129,17 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 20}},
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_audit",
+            "description": (
+                "只读检查自己的记忆是否可信：L1 哈希链、SELF/L2/觉察卡/做法/片段的证据是否缺失或被删除、"
+                "最近备份是否存在且完整、哪些事项值得复核。它只报告问题与提示，不修复、不改写。"
+            ),
+            "parameters": {"type": "object", "properties": {}},
         },
     },
 ]
@@ -257,6 +269,7 @@ class MemoryToolbox:
             "judgment_list": self._judgment_list,
             "practice_list": self._practice_list,
             "open_loops": self._open_loops,
+            "memory_audit": self._memory_audit,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -393,3 +406,6 @@ class MemoryToolbox:
         limit = self._limit(args, 10, maximum=20)
         loops = self.store.open_loops(limit=limit)
         return {"loops": [loop_payload(loop) for loop in loops]}
+
+    def _memory_audit(self, args: dict[str, Any]) -> dict[str, Any]:
+        return memory_health(self.store, self.config, now=self.now_fn())
