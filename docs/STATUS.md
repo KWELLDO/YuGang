@@ -431,5 +431,7 @@
 - **进程外体检**（`36fdeb3`）。它漏过 57 分钟故障的形态是「进程活着但断开」，而安静的下午和她睡着长得一模一样。新增 `yugang probe`（`src/yugang/health.py`）：HTTP 问网关、并入 audit、查磁盘与今日预算，`--deep` 花一次 `max_tokens=16` 的模型调用验证凭据与网络；写 `health.json`、`history.jsonl`（保留 500 条）、`alert-state.json`。同一故障 6 小时只写一条 L1，恢复时说明「期间还有 N 次未通知」——否则沉默会被读成健康。它只报事实，不修任何东西：会自愈的探针把故障变成延迟。
 - **部署侧**：`deploy/yugang-probe.sh` + `yugang-probe.service`/`.timer`，以 `dafeiyu` 每 15 分钟跑一次浅探针，每本地日第一次额外 `--deep`（定时器传 `--deep-if-due`）。日戳 `health/deep-probe.day` 由探针自己写，不放在 shell 里：没花钱的失败（缺凭据）不该消耗当天额度，花了钱的崩溃也不该十五分钟后再花一次。探针单元必须带 `EnvironmentFile=/etc/dafeiyu-dsh.env`——第一次部署漏了它，单元在写 `health.json` 之前就退出，磁盘上留着上一份健康结论，静默得像一个安静的下午。
 
+  云端实证（2026-10-26 00:08 CST，走真实 systemd 单元）：无日戳时 `yugang-probe.service` 花掉 `spent_cny=0.000034`，`model={ok:true,text:"ok",ms:464}`，日戳变成 `2026-10-26`；紧接着再跑一次，`model=None`、没花钱；而手工在缺 `DEEPSEEK_API_KEY` 的环境里跑，退出码 1、**日戳没被写**——没碰到模型的失败不再吃掉当天唯一一次付费检查。`yugang.service` 重启后 `/health` 为 `ok:true, degraded:false, worker_alive:true`，http+email 两通道 healthy。
+
 - 明确不借：多平台 transport 抽象、launchd、桌面控制、Slack/Discord、向量检索之争（我们用 FTS5 得出同一结论）。成本口径也不跟它：它故意只报 token 和命中率不报钱，YuGang 继续给她看 ¥（用户选 A），因为她的预算就是 5 元/日这个具体的东西。
 - 测试：新增 `tests/test_prompt_cache.py`(9)、`tests/test_persona_files.py`(6)、`tests/test_recall_visibility.py`(6)、`tests/test_trust.py`(7)、`tests/test_health_probe.py`(13，含 4 个日戳/--deep-if-due)；全量 **192 passed**。顺带修了两个在我改动前就已经失败的时间炸弹测试（`test_episodes.py` 硬编码 07:00 UTC）。
