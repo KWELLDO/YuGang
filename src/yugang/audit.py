@@ -154,10 +154,19 @@ def audit_memory(store: Any, config: Any, *, now: datetime | None = None) -> dic
         problems.append(f"{len(bad_falsifiers)} 条当前 L2 没有 falsifier：{', '.join(bad_falsifiers)}")
     if bad_evidence:
         problems.append(f"{len(bad_evidence)} 条当前 L2 的证据缺失或已删除")
+    duplicate_groups = store.judgment_duplicate_groups(threshold=0.72, limit=1000)
+    if duplicate_groups:
+        warnings.append(
+            f"{len(duplicate_groups)} 组当前 L2 的措辞高度相似；可能是同一条判断被反复写入，"
+            "也可能分属不同情形，需要她自己判断是否用 supersedes 合并。"
+        )
     judgments = {
         "current": len(current_judgments),
         "bad_falsifiers": bad_falsifiers,
         "bad_evidence": bad_evidence,
+        "duplicate_groups": [
+            [judgment.id for judgment in group] for group in duplicate_groups
+        ],
     }
 
     cards = store.awareness_cards(status="open", limit=1000) + store.awareness_cards(

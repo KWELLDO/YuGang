@@ -193,6 +193,7 @@ function renderBeliefs(judgments) {
     meta.append(tag(labels[j.status] || j.status || '待验证', j.status === 'open'));
     meta.append(document.createTextNode('置信 ' + (j.confidence ?? '?') + ' · 证据 ' + ((j.evidence_refs || []).length) + ' 条'));
     if ((j.supersedes || []).length) meta.append(tag('合并 ' + j.supersedes.length + ' 条旧判断', false));
+    if (j.reconfirmations) meta.append(tag('未来自己确认 ' + j.reconfirmations + ' 次', false));
     d.append(meta);
     if (j.falsifier) d.append(el('div','falsifier', '会被什么推翻：' + j.falsifier));
     box.append(d);

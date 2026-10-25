@@ -148,6 +148,7 @@ def build_wake_context(
     cards = reviewable_cards(store, 10)
     stance = store.current_stance()
     judgments = store.current_judgments(limit=6)
+    review_counts = store.judgment_review_counts([j.id for j in judgments])
     practices = store.practices(status="active", limit=50)
     self_history = store.self_history(limit=2)
     pending = store.pending_messages(limit=10)
@@ -277,13 +278,20 @@ def build_wake_context(
         }
         for judgment in judgments:
             status = store.judgment_status(judgment.id)
+            counts = review_counts.get(judgment.id) or {}
+            reconfirmed = int(counts.get("supported") or 0)
+            suffix = f"；未来自己确认过 {reconfirmed} 次" if reconfirmed else ""
             lines.append(
                 f"- [{judgment.id}] {status_labels.get(status, status)}"
-                f"（置信 {judgment.confidence:.2f}）：{judgment.claim}"
+                f"（置信 {judgment.confidence:.2f}）{suffix}：{judgment.claim}"
             )
             lines.append(f"  反证：{judgment.falsifier}")
             if getattr(judgment, "evidence_refs", None):
                 lines.append("  证据：" + ", ".join(judgment.evidence_refs[:6]))
+        lines.append(
+            "确认次数只统计我在睡去时明确写 supported 的复核，不代表客观真相；"
+            "没有确认过不等于它错。"
+        )
     else:
         lines.append("（还没有需要保留的判断。）")
     lines.append("")

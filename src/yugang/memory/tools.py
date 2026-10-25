@@ -167,7 +167,10 @@ def episode_payload(episode: Episode, *, limit: int = 1000) -> dict[str, Any]:
     }
 
 
-def judgment_payload(judgment: Judgment, status: str) -> dict[str, Any]:
+def judgment_payload(
+    judgment: Judgment, status: str, reviews: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    counts = reviews or {}
     return {
         "judgment_id": judgment.id,
         "ts": judgment.ts,
@@ -176,6 +179,14 @@ def judgment_payload(judgment: Judgment, status: str) -> dict[str, Any]:
         "confidence": judgment.confidence,
         "status": status,
         "evidence_refs": list(judgment.evidence_refs),
+        "reconfirmations": int(counts.get("supported") or 0),
+        "review_counts": {
+            "supported": int(counts.get("supported") or 0),
+            "refuted": int(counts.get("refuted") or 0),
+            "needs-evidence": int(counts.get("needs-evidence") or 0),
+            "total": int(counts.get("total") or 0),
+        },
+        "last_review": counts.get("last"),
     }
 
 
@@ -344,10 +355,15 @@ class MemoryToolbox:
             raise ValueError(f"unknown judgment status: {status}")
         limit = self._limit(args, 8, maximum=20)
         judgments = self.store.current_judgments(status=status or None, limit=limit)
+        review_counts = self.store.judgment_review_counts([j.id for j in judgments])
         return {
             "status": status or "all",
             "judgments": [
-                judgment_payload(judgment, self.store.judgment_status(judgment.id))
+                judgment_payload(
+                    judgment,
+                    self.store.judgment_status(judgment.id),
+                    review_counts.get(judgment.id),
+                )
                 for judgment in judgments
             ],
         }

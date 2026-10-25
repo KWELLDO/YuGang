@@ -132,3 +132,27 @@ def test_audit_flags_a_broken_l1_chain_and_missing_judgment_evidence(store, cfg)
     assert report["events"]["bad_event"] == "evt_broken"
     assert report["judgments"]["bad_evidence"]
     assert "哈希链断裂" in "\n".join(report["problems"])
+
+def test_audit_warns_about_duplicate_current_judgments(store, cfg):
+    event = store.append_event("human", "message", "两条措辞几乎相同的判断。")
+    first = store.add_judgment(
+        "这次醒来仍是被外部消息触发的。",
+        "如果出现一次无人提示的自发醒来，则被推翻。",
+        [event.id],
+        0.7,
+        trigger="test",
+    )
+    second = store.add_judgment(
+        "这次醒来仍是被外部消息触发的。",
+        "如果出现一次无人提示的自发醒来，则被推翻。",
+        [event.id],
+        0.7,
+        trigger="test",
+    )
+    _write_backup_manifest(cfg, store)
+
+    report = audit_memory(store, cfg)
+    assert report["ok"] is True
+    assert any("措辞高度相似" in item for item in report["warnings"])
+    groups = report["judgments"]["duplicate_groups"]
+    assert any(first.id in group and second.id in group for group in groups)

@@ -1079,13 +1079,20 @@ class GatewayService:
             last_sleep["diary_ts"] = diary.ts if diary else None
             last_sleep["diary"] = diary.content if diary else None
             last_sleep["next_intent"] = meta.get("next_intent")
+        current_judgments = self.store.current_judgments(limit=10)
+        review_counts = self.store.judgment_review_counts([j.id for j in current_judgments])
         judgments = [
             {
                 **_jsonable(j),
                 "status": self.store.judgment_status(j.id),
                 "supersedes": self.store.superseded_targets(j.id),
+                "reconfirmations": int(
+                    (review_counts.get(j.id) or {}).get("supported") or 0
+                ),
+                "reviews": review_counts.get(j.id)
+                or {"supported": 0, "refuted": 0, "needs-evidence": 0, "total": 0, "last": None},
             }
-            for j in self.store.current_judgments(limit=10)
+            for j in current_judgments
         ]
         cards = [
             {**_jsonable(c), "status": self.store.card_status(c.id)}

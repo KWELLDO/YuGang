@@ -109,11 +109,26 @@ def build_sleep_messages(
                 line += f" note={last.note[:200]}"
         practice_lines.append(line)
     open_judgments = _reviewable_judgments(store, 20)
-    judgment_lines = [
-        f"- [{j.id}] confidence={j.confidence:.2f} claim={j.claim[:300]}\n"
-        f"  falsifier={j.falsifier[:300]}\n  evidence={', '.join(j.evidence_refs)}"
-        for j in open_judgments
-    ]
+    review_counts = store.judgment_review_counts([j.id for j in open_judgments])
+    judgment_lines = []
+    for judgment in open_judgments:
+        counts = review_counts.get(judgment.id) or {}
+        reconfirmed = int(counts.get("supported") or 0)
+        line = (
+            f"- [{judgment.id}] confidence={judgment.confidence:.2f} claim={judgment.claim[:300]}\n"
+            f"  falsifier={judgment.falsifier[:300]}\n  evidence={', '.join(judgment.evidence_refs)}\n"
+            f"  reconfirmed={reconfirmed}"
+        )
+        last = counts.get("last") or {}
+        if last:
+            line += f" last_review={last.get('verdict')} at {_local(last.get('ts'))}"
+        judgment_lines.append(line)
+    duplicate_groups = store.judgment_duplicate_groups(threshold=0.72, limit=100)
+    duplicate_lines = []
+    for group in duplicate_groups:
+        duplicate_lines.append("- " + ", ".join(j.id for j in group))
+        for judgment in group:
+            duplicate_lines.append(f"  - [{judgment.id}] {judgment.claim[:220]}")
     self_text = store.current_self() or ""
     transcript_text = "\n".join(f"{m.get('role')}: {m.get('content', '')[:1000]}" for m in transcript[-30:])
     min_minutes = int(getattr(config, "alarm_min_minutes", 30))
@@ -146,6 +161,9 @@ def build_sleep_messages(
 
 ## 还没复核的判断（open / needs-evidence L2）
 {chr(10).join(judgment_lines) or "（无）"}
+
+## 可能重复的当前判断（机械相似度提示，不是命令）
+{chr(10).join(duplicate_lines) or "（没有发现措辞高度相似的当前判断。）"}
 
 ## 还没验证的自我觉察（open / needs-evidence cards）
 {chr(10).join(card_lines) or "（无）"}
@@ -182,6 +200,8 @@ def build_sleep_messages(
 - evidence_refs 必须是上面真实出现的事件 id；没有证据的判断不要写。
 - episode 是这次清醒的叙事索引，不是新的自我判断：只写上面材料里真实发生的事，不要复述整篇日记，不要编造；它不会自动改 SELF.md。没有材料就填 null。
 - judgments 是可选的“新判断”；如果它取代了上面某条真实 L2，用 supersedes 填那些 judgment_id（可以是数组，一条新判断可以合并多条旧判断），旧判断保留在历史里，不会被删除。只能取代这次睡去之前就存在的判断，且一条旧判断只能被取代一次；不取代就填 []。
+- reconfirmed=N 是这条判断过去被我在睡去时明确 supported 的次数，不是客观正确率。如果你今晚只是想再次确认它，优先用 judgment_reviews 的 supported，不要新建一条措辞几乎相同的 L2。
+- 「可能重复的当前判断」只是机械相似度提示，不是命令。只有你判断它们确实是同一条时，才新建一条判断并用 supersedes 合并；如果它们分属不同情形，就保留原样，不要为了减少数量而合并。
 - judgment_reviews 只能引用上面 open / needs-evidence L2 的真实 judgment_id；每条复核至少引用一个真实 L1 事件，且不要只引用这次生成的日记。没有新证据就留空，不要为了关闭而复核。
 - self_edits 最多 2 条；section 只能是：我是谁 / 我相信什么 / 我在做什么 / 我的边界 / 未闭合的事 / 最近的变化；op 只能是 append（追加）或 replace（替换该节正文）。
 - 不要输出完整 SELF.md。没有值得改的就给空数组并设 accept_self_edit=false。

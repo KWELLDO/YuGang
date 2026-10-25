@@ -804,6 +804,96 @@ class MemoryStore:
         ).fetchone()
         return row["verdict"] if row else "open"
 
+    def judgment_review_counts(
+        self, judgment_ids: Iterable[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Count how often a future self accepted or rejected each judgment.
+
+        The count is the design's "reconfirmed by a later self" signal: only an
+        explicit `supported` review written during sleep counts. A recall or a
+        citation is deliberately weaker and is tracked separately.
+        """
+        ids = [str(x) for x in dict.fromkeys(judgment_ids) if str(x).strip()]
+        if not ids:
+            return {}
+        marks = ",".join("?" for _ in ids)
+        counts = {
+            jid: {
+                "supported": 0,
+                "refuted": 0,
+                "needs-evidence": 0,
+                "total": 0,
+                "last": None,
+            }
+            for jid in ids
+        }
+        rows = self.conn.execute(
+            f"SELECT * FROM judgment_reviews WHERE judgment_id IN ({marks}) "
+            "ORDER BY ts ASC, rowid ASC",
+            tuple(ids),
+        ).fetchall()
+        for row in rows:
+            bucket = counts.get(row["judgment_id"])
+            if bucket is None:
+                continue
+            verdict = row["verdict"]
+            if verdict in {"supported", "refuted", "needs-evidence"}:
+                bucket[verdict] += 1
+            bucket["total"] += 1
+            bucket["last"] = {
+                "id": row["id"],
+                "ts": row["ts"],
+                "verdict": verdict,
+                "note": row["note"],
+                "evidence_refs": _loads(row["evidence_refs"], []),
+            }
+        return counts
+
+    def judgment_duplicate_groups(
+        self,
+        *,
+        threshold: float = 0.72,
+        limit: int = 100,
+        max_groups: int = 10,
+    ) -> list[list[Judgment]]:
+        """Current judgments whose wording is close enough to be worth a look.
+
+        This is a mechanical hint, never an automatic merge: only she can decide
+        whether two claims mean the same thing. Superseded rows are excluded, so
+        the report shrinks as she consolidates her own lineage.
+        """
+        cutoff = max(0.0, min(1.0, float(threshold)))
+        judgments = self.current_judgments(limit=limit)
+
+        def norm(text: str) -> str:
+            return "".join(
+                ch
+                for ch in (text or "").lower()
+                if ch.isalnum() or "\u4e00" <= ch <= "\u9fff"
+            )
+
+        normalized = [norm(j.claim) for j in judgments]
+        used: set[int] = set()
+        groups: list[list[Judgment]] = []
+        for i, judgment in enumerate(judgments):
+            if i in used or not normalized[i]:
+                continue
+            group = [i]
+            for k in range(i + 1, len(judgments)):
+                if k in used or not normalized[k]:
+                    continue
+                ratio = difflib.SequenceMatcher(
+                    None, normalized[i], normalized[k], autojunk=False
+                ).ratio()
+                if ratio >= cutoff:
+                    group.append(k)
+            if len(group) > 1:
+                used.update(group)
+                groups.append([judgments[index] for index in group])
+                if len(groups) >= max(1, int(max_groups)):
+                    break
+        return groups
+
     def judgments(self, *, status: str | None = None, limit: int = 50) -> list[Judgment]:
         sql = (
             "SELECT j.* FROM judgments j "

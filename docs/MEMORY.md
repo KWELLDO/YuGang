@@ -32,6 +32,21 @@ the freshly written diary is not accepted as the only evidence. A `supported` re
 increments `event_confirmations` for the cited L1 events; a `needs-evidence` review keeps
 the judgment in the next sleep prompt instead of parking it forever.
 
+The design's weight signal is how often a later self re-confirmed a judgment, not how
+confident the original writer was. `judgment_review_counts()` counts explicit `supported`
+reviews per judgment and returns the latest review; waking, the sleep prompt, the
+`judgment_list` tool and the fish tank show `未来自己确认过 N 次`. Only an explicit
+`supported` review counts. A recall or a citation is weaker and tracked separately. The
+count is historical, not a truth score: a judgment can be confirmed twice and later
+refuted, and a zero only means this system has not recorded a re-confirmation.
+
+To keep the lineage from filling with near-duplicates, `judgment_duplicate_groups()`
+groups current judgments whose normalized claims are at least 72% similar (difflib). The
+sleep prompt shows these groups and suggests reviewing an existing judgment instead of
+writing a new one; if they really are the same claim, she can create one new judgment with
+`supersedes` pointing at several old rows. The hint never merges automatically, and the
+audit reports duplicate groups as a warning rather than a problem.
+
 ## L3 — current stance
 
 A thin, recomputed snapshot. It is not hand-edited and not a persona prompt. Each snapshot
