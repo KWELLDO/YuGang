@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -7,7 +8,10 @@ from zoneinfo import ZoneInfo
 
 from ..ids import humanize_gap, local_iso, now_iso, parse_ts, utcnow
 from ..memory.models import Event, Message, OpenLoop, RecallHit
+from ..memory.visibility import is_public_channel
 from ..selfmodel.awareness import INLINE_AWARENESS_RULE, reviewable_cards
+from ..selfmodel.identity import identity_block
+from ..selfmodel.self_md import split_for_prompt
 
 MEMORY_TOOL_RULE = """关于只读记忆工具：
 - 你可以在回答前调用工具查 L1 原始事件、生活片段、SELF、L2、做法和未闭合事项。
@@ -71,6 +75,101 @@ class WakeContext:
     # goes into the system message, which is what lets a provider prefix cache hit.
     stable_prompt: str = ""
     volatile_prompt: str = ""
+    identity_text: str = ""
+    # Sections of SELF.md that did not fit their injection budget. Named so a
+    # missing part of herself is never mistaken for a part that does not exist.
+    self_overflows: list[Any] = field(default_factory=list)
+    public_only: bool = False
+
+
+# Words that make a remark a question about the past. Retrieval is a tool for
+# "what happened", not a tax on every greeting: a turn that only asks about now
+# is already covered by the recent L1 that is always injected.
+_PAST_MARKERS = (
+    "上次",
+    "上一次",
+    "之前",
+    "以前",
+    "从前",
+    "当初",
+    "还记得",
+    "记得",
+    "那天",
+    "那天晚上",
+    "昨天",
+    "昨晚",
+    "前天",
+    "上周",
+    "上个月",
+    "去年",
+    "曾经",
+    "刚才",
+    "之前说",
+    "你说过",
+    "我说过",
+    "我们说过",
+    "后来",
+    "原来",
+    "回顾",
+    "啥时候",
+    "什么时候",
+    "多久",
+    "第几",
+    "多久没",
+)
+
+
+_EDGE_PARTICLES = "的呢吗吧啊了么呀嘛哈"
+_RECALL_FILLERS = (
+    "你说的",
+    "我说过",
+    "你说过",
+    "我们说过",
+    "那件事",
+    "那个",
+    "这个",
+    "那些",
+    "这些",
+    "什么",
+    "怎么",
+    "为什么",
+    "是不是",
+    "要不要",
+    "能不能",
+    "帮我",
+    "一下",
+    "看看",
+)
+
+
+def points_to_past(text: str) -> bool:
+    """True when the remark is asking about something that already happened."""
+    content = (text or "").strip()
+    if not content:
+        return False
+    return any(marker in content for marker in _PAST_MARKERS)
+
+
+def retrieval_query(text: str) -> str:
+    """Turn a spoken sentence into terms the index can actually match.
+
+    Recall matches whole whitespace-separated terms (FTS5 trigram, then LIKE).
+    A Chinese message has no spaces, so passing it through verbatim asks the
+    index for one twelve-character term and gets nothing back. Strip the
+    past-pointing frame and the filler, keep the content words.
+    """
+    content = (text or "").strip()
+    if not content:
+        return ""
+    for phrase in sorted(_PAST_MARKERS + _RECALL_FILLERS, key=len, reverse=True):
+        content = content.replace(phrase, " ")
+    content = re.sub(r"[^\w\u4e00-\u9fff]+", " ", content)
+    terms: list[str] = []
+    for raw in content.split():
+        term = raw.strip(_EDGE_PARTICLES)
+        if len(term) >= 2 and term not in terms:
+            terms.append(term)
+    return " ".join(terms)[:200]
 
 
 def _gap_seconds(now: datetime, last_ts: str | None) -> float | None:
@@ -121,11 +220,17 @@ def build_wake_context(
     current_wake_id: str | None = None,
     new_wake: bool | None = None,
     body: dict[str, Any] | None = None,
+    channel: str | None = None,
 ) -> WakeContext:
     now = now or utcnow()
     if new_wake is None:
         new_wake = current_wake_id is None
     self_text = store.current_self() or ""
+    self_prompt, self_overflows = split_for_prompt(self_text) if self_text else ("", [])
+    identity_text = identity_block(config)
+    # An answer that goes somewhere public may only draw on material that is
+    # already public. Filtering happens in the query, not after the fact.
+    public_only = is_public_channel(channel)
     last_sleep = store.latest_event("sleep")
     wake_events = store.events(limit=3, kind="wake", order="desc")
     if current_wake_id:
@@ -161,8 +266,24 @@ def build_wake_context(
     # On a user message, recall from what was just said. On an autonomous wake
     # there is no query, so use the intention she left before sleeping, then the
     # oldest open loop, instead of skipping recall entirely.
-    recall_query = query or last_intent or (loops[0].title if loops else "")
-    recalled = store.recall(recall_query, limit=int(getattr(config, "recall_limit", 6)), now=now, log=False) if recall_query else []
+    if query:
+        # A greeting, or a question about now, is answered from the recent L1
+        # that is already in context. Searching her whole life for it costs
+        # input tokens on every turn and mostly returns coincidence.
+        recall_query = retrieval_query(query) if points_to_past(query) else ""
+    else:
+        recall_query = retrieval_query(last_intent or "") or (loops[0].title if loops else "")
+    recalled = (
+        store.recall(
+            recall_query,
+            limit=int(getattr(config, "recall_limit", 6)),
+            now=now,
+            log=False,
+            public_only=public_only,
+        )
+        if recall_query
+        else []
+    )
     episodes = store.search_episodes(recall_query, limit=4) if recall_query else []
     if not episodes:
         episodes = store.episodes(limit=4)
@@ -262,8 +383,17 @@ def build_wake_context(
             lines.append("- 现在能收到消息的通道：" + "、".join(str(c) for c in channels) + "。")
         lines.append(f"- 操作员暂停：{'是，模型调用被暂停。' if body.get('paused') else '否。'}")
         lines.append("")
+    lines.append("## 我的身份内核（不是我写的，我也改不了）")
+    lines.append(identity_text)
+    lines.append("")
     lines.append("## SELF.md（当前版本）")
-    lines.append(self_text or "（还没有 SELF.md；只有一个空的身体。）")
+    lines.append(self_prompt or "（还没有 SELF.md；只有一个空的身体。）")
+    if self_overflows:
+        names = "、".join(f"「{item.heading}」" for item in self_overflows)
+        lines.append(
+            f"（{names} 这一次没有完整进入上下文，上面标明了被截断的字数。"
+            "那不是我没有那部分，是这次没读到；不要把那部分当成不存在。）"
+        )
     lines.append("")
     lines.append("## 我上一次改自己")
     if len(self_history) >= 2:
@@ -414,6 +544,9 @@ def build_wake_context(
         body=body,
         stable_prompt=stable_prompt,
         volatile_prompt=volatile_prompt,
+        identity_text=identity_text,
+        self_overflows=self_overflows,
+        public_only=public_only,
     )
 
 

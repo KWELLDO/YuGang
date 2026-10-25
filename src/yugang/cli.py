@@ -28,6 +28,7 @@ from .restore import BackupError, restore_backup
 from .runtime.mock import MockRuntime
 from .runtime.openai_compat import OpenAICompatRuntime
 from .selfmodel.awareness import merge_similar_cards
+from .selfmodel.identity import bootstrap_identity
 from .selfmodel.self_md import bootstrap_self, write_self_file
 
 
@@ -79,6 +80,7 @@ def make_runtime(cfg: Config, *, mock: bool = False) -> Any:
 def make_service(cfg: Config, *, mock: bool = False, channels: list[Any] | None = None) -> GatewayService:
     store = make_store(cfg)
     bootstrap_self(store, cfg)
+    bootstrap_identity(store, cfg)
     return GatewayService(cfg, store, make_runtime(cfg, mock=mock), channels=channels)
 
 
@@ -120,6 +122,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     cfg = load_config(args)
     store = make_store(cfg)
     content = bootstrap_self(store, cfg)
+    bootstrap_identity(store, cfg)
     cfg.save()
     _print_json({"ok": True, "home": cfg.home, "db": cfg.db_path, "self": cfg.self_path, "self_bytes": len(content), "stats": store.stats()})
     return 0
@@ -293,6 +296,20 @@ def cmd_audit(args: argparse.Namespace) -> int:
         report = audit_memory(store, cfg)
         _print_json(report)
         return 0 if report["ok"] else 1
+    finally:
+        store.close()
+
+
+def cmd_persona_check(args: argparse.Namespace) -> int:
+    """只读检查：她的自我文件醒来时到底注入多少、哪里重复、哪里没日期、有没有凭据。"""
+    cfg = load_config(args)
+    store = MemoryStore(cfg.db_path)
+    try:
+        from .selfmodel.persona_check import check_persona
+
+        report = check_persona(store, cfg)
+        _print_json(report)
+        return 0 if report["healthy"] else 1
     finally:
         store.close()
 
@@ -550,6 +567,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("audit", help="只读体检：哈希链、证据、备份与未闭合事项")
     p.set_defaults(func=cmd_audit)
+
+    p = sub.add_parser("persona-check", help="只读检查：SELF.md/IDENTITY.md 的注入预算、重复、日期与凭据")
+    p.set_defaults(func=cmd_persona_check)
 
     p = sub.add_parser("serve", help="启动常驻网关")
     p.set_defaults(func=cmd_serve)

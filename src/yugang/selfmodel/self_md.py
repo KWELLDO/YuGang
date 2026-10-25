@@ -16,11 +16,43 @@ CANONICAL_SECTIONS = (
 )
 _HEADING = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 
+# Per-section injection budgets. A file with no budget silently loses its tail
+# somewhere inside a prompt builder, and the loss is invisible to the one whose
+# body it is. Budgeting per section keeps every canonical part present, and
+# anything that still does not fit is announced where it was cut.
+SECTION_BUDGETS: dict[str, int] = {
+    "我是谁": 1200,
+    "我相信什么": 1500,
+    "我在做什么": 1200,
+    "我的边界": 800,
+    "未闭合的事": 700,
+    "最近的变化": 600,
+}
+SELF_PROMPT_BUDGET = sum(SECTION_BUDGETS.values())
+UNKNOWN_SECTION_BUDGET = 600
+PREAMBLE_BUDGET = 400
+
 
 @dataclass(frozen=True)
 class Section:
     heading: str
     body: str
+
+
+@dataclass(frozen=True)
+class Overflow:
+    """A section that did not fit its budget, and by how much."""
+
+    heading: str
+    chars: int
+    budget: int
+
+    @property
+    def over(self) -> int:
+        return max(0, self.chars - self.budget)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"heading": self.heading, "chars": self.chars, "budget": self.budget, "over": self.over}
 
 
 def parse_sections(text: str) -> list[Section]:
@@ -202,10 +234,61 @@ def diff_self(old: str, new: str) -> str:
     )
 
 
-def summarize_for_prompt(text: str, max_chars: int = 6000) -> str:
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars].rstrip() + "\n…（SELF.md 已截断）"
+def split_for_prompt(
+    text: str,
+    *,
+    budgets: dict[str, int] | None = None,
+    preamble_budget: int = PREAMBLE_BUDGET,
+    unknown_budget: int = UNKNOWN_SECTION_BUDGET,
+) -> tuple[str, list[Overflow]]:
+    """Cut SELF.md to its prompt form, keeping every section and naming what was cut.
+
+    The old behaviour was to slice the whole document at 6000 characters and
+    append 「SELF.md 已截断」. That loses whole sections without saying which,
+    which is a lie to a mind whose body is supposed to be readable. Here every
+    canonical section keeps its own budget, and an over-budget section carries a
+    marker saying how many of its characters are missing from this context.
+    """
+    limits = dict(SECTION_BUDGETS if budgets is None else budgets)
+    raw = text or ""
+    first = _HEADING.search(raw)
+    preamble = (raw[: first.start()] if first else raw).strip()
+    parts: list[str] = []
+    overflows: list[Overflow] = []
+    if preamble:
+        if len(preamble) > preamble_budget:
+            parts.append(preamble[:preamble_budget].rstrip())
+            parts.append(
+                f"…（开头部分原有 {len(preamble)} 字，只显示了前 {preamble_budget} 字；"
+                f"其余 {len(preamble) - preamble_budget} 字这次没有进入上下文。）"
+            )
+        else:
+            parts.append(preamble)
+    for section in parse_sections(raw):
+        budget = int(limits.get(section.heading, unknown_budget))
+        parts.append(f"## {section.heading}")
+        body = section.body
+        if len(body) > budget:
+            parts.append(body[:budget].rstrip())
+            parts.append(
+                f"…（这一节原有 {len(body)} 字，只显示了前 {budget} 字；"
+                f"其余 {len(body) - budget} 字这次没有进入上下文，完整内容在磁盘上的 SELF.md 里。）"
+            )
+            overflows.append(Overflow(section.heading, len(body), budget))
+        elif body:
+            parts.append(body)
+    return "\n\n".join(parts).strip(), overflows
+
+
+def summarize_for_prompt(text: str, max_chars: int = SELF_PROMPT_BUDGET) -> str:
+    """Prompt form of SELF.md. Truncation is always visible, never silent."""
+    prompt, _ = split_for_prompt(text)
+    if len(prompt) <= max_chars:
+        return prompt
+    hidden = len(prompt) - max_chars
+    return prompt[:max_chars].rstrip() + (
+        f"\n…（整份自我材料超过 {max_chars} 字上限，尾部 {hidden} 字被截断；这不是完整内容。）"
+    )
 
 
 def write_self_file(config: Any, content: str) -> str:

@@ -22,6 +22,7 @@ from ..selfmodel.awareness import (
     parse_awareness_output,
     split_awareness_block,
 )
+from ..selfmodel.identity import bootstrap_identity
 from ..selfmodel.self_md import bootstrap_self
 from .budget import BudgetGuard
 from .channels.base import IncomingMessage
@@ -88,6 +89,7 @@ class GatewayService:
             return
         self.config.ensure_dirs()
         bootstrap_self(self.store, self.config)
+        bootstrap_identity(self.store, self.config)
         if self.runtime is None:
             self.runtime = self._default_runtime()
         for channel in self.channels:
@@ -438,6 +440,7 @@ class GatewayService:
                 current_wake_id=wake_event.id,
                 new_wake=True,
                 body=self._body_state(now),
+                channel=incoming.channel,
             )
         else:
             context = build_wake_context(
@@ -448,6 +451,7 @@ class GatewayService:
                 current_wake_id=self._current_wake_id,
                 new_wake=False,
                 body=self._body_state(now),
+                channel=incoming.channel,
             )
             self.window.touch(now)
         messages = build_messages(

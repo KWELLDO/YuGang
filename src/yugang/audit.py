@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .ids import parse_ts, utcnow
+from .selfmodel.persona_check import check_persona
 from .selfmodel.self_md import CANONICAL_SECTIONS, get_section, section_evidence
 
 
@@ -271,6 +272,13 @@ def audit_memory(store: Any, config: Any, *, now: datetime | None = None) -> dic
     if orphan_citations:
         problems.append(f"{orphan_citations} 条引用确认指向不存在的事件")
 
+    # Persona accounting: what part of her self-model actually reaches the prompt,
+    # what is written twice, what has no date, and whether a credential leaked
+    # into the files that get pasted into every request.
+    persona = check_persona(store, config)
+    problems.extend(persona["problems"])
+    warnings.extend(persona["warnings"])
+
     report = {
         "ok": not problems,
         "generated_at": now.isoformat(),
@@ -282,6 +290,7 @@ def audit_memory(store: Any, config: Any, *, now: datetime | None = None) -> dic
         "episodes": episode_report,
         "open_loops": loops_report,
         "citations": {"count": citation_count, "orphans": orphan_citations},
+        "persona": persona,
         "backup": backup,
         "problems": problems,
         "warnings": warnings,

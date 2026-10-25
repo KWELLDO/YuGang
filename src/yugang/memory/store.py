@@ -14,6 +14,7 @@ from typing import Any, Iterable
 
 from ..db import connect, init_db
 from ..ids import day_key, iso, new_id, now_iso, parse_ts, utcnow
+from .visibility import is_private_channel, visibility_clause
 from .models import (
     Alarm,
     AwarenessCard,
@@ -380,6 +381,7 @@ class MemoryStore:
         source: str | None = None,
         kind: str | None = None,
         log: bool = True,
+        public_only: bool = False,
     ) -> list[RecallHit]:
         now = now or utcnow()
         query = (query or "").strip()
@@ -409,6 +411,12 @@ class MemoryStore:
                 if kind:
                     sql += " AND e.kind = ?"
                     args.append(kind)
+                if public_only:
+                    # A public answer must not be able to quote a private
+                    # conversation just because both contain the same word.
+                    clause, params = visibility_clause("e.channel")
+                    sql += clause
+                    args.extend(params)
                 sql += " ORDER BY rank LIMIT ?"
                 args.append(max(limit * 4, 16))
                 try:
@@ -430,6 +438,10 @@ class MemoryStore:
             if kind:
                 sql += " AND kind = ?"
                 args.append(kind)
+            if public_only:
+                clause, params = visibility_clause("channel")
+                sql += clause
+                args.extend(params)
             sql += " ORDER BY ts DESC LIMIT ?"
             args.append(max(limit * 4, 16))
             rows = self.conn.execute(sql, args).fetchall()
@@ -441,6 +453,8 @@ class MemoryStore:
         elif not query:
             for ev in self.events(limit=max(limit * 4, 16)):
                 if ev.id in redacted:
+                    continue
+                if public_only and is_private_channel(ev.channel):
                     continue
                 hits.append(RecallHit(ev, 0.5, ev.content[:160]))
         # Recency + provenance + future-self confirmation weighting.
