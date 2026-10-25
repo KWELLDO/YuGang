@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 05:55 CST（Asia/Shanghai）
+更新时间：2026-10-25 08:24 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：129 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、备份校验与恢复、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤、醒来时的身体状态读数）。
+- 自动化测试：139 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、备份校验与恢复、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤、醒来时的身体状态读数）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -388,3 +388,14 @@
 - commit `53b6d23 feat(memory): let her look things up while she is awake` 已 push origin master 并部署到 `/home/dafeiyu/yugang`；重启后 `/health` 为 `ok=true, degraded=false, worker_alive=true`。
 - 08:07:16 真实验证：操作员故意给了一个不存在的时间点「2026-10-25 00:30 CST 第一次醒来」，要求先查记忆再说。她调用 `memory_search` 三次（「00:30 wake」「00:30 醒来」等）与 `recent_events` 一次，全部成功；reply 事件 `evt_20261025T000723407440_6cb31e` 的 meta 记录四次工具调用。她没有把不存在的事件圆过去，而是说明 L1 里没有这个 wake、指出可能是把 UTC 16:30 当成 CST 00:30，并给出一条真实替代事件 `evt_20261024T165014440447_92abe9`（16:50:10 UTC 的睡去日记）。这说明工具是只读材料，最终判断仍由她基于 L1 做。
 - 本次回复经历 3 次模型轮次，budget_ledger 记录三笔 chat：0.021136 + 0.030806 + 0.052086 元，合计约 0.104 元；云端 events=273、chain ok、budget 1.683868/5 元（chat 0.702192 + sleep 0.943028 + autonomous 0.038648），yugang.service active，email poller healthy。
+
+### 记忆体检 audit（08:24 CST，已部署并真实验证）
+
+- 动机：`verify` 只能回答哈希链有没有断；不能回答「SELF/L2/片段/做法引用的证据还在不在、备份是不是只剩一个 manifest」。记忆可靠性需要一种只读、可重复、不会替她修东西的体检。
+- 新增 `src/yugang/audit.py` 的 `audit_memory(store, config, now=None)`：检查 L1 哈希链与首尾时间、当前 SELF 各节及版本 evidence、当前 L2 的 falsifier 与证据、open/needs-evidence 觉察卡证据、active practice 的原始证据与超过 7 天未复核、episode 的 `event_ids`、未闭合事项证据与超过 14 天未动、citation 孤儿、最新备份的 db 是否存在且非空、integrity、chain 与 age（48h 警告）。有任何 problem 时 `ok=false`，CLI 退出码 1；warnings 不改变退出码。
+- `yugang audit` CLI 与需要鉴权的 `GET /audit` 已上线（有 problem 时 HTTP 409）；只读，不写 L1、不修复、不改写红action。
+- 实机第一次跑暴露一个报告 bug：`我相信什么（可被证据推翻）` 的标题带限定语，旧的 `section_map` 用精确 key 取值，导致报告里这一节 `chars=0`，其实正文有 652 字、11 条证据。改为 `get_section()` 按前缀匹配，并加回归断言；后来还补了「manifest 在但 .db 不存在/为空」的 problem。
+- 测试：`tests/test_audit.py` 4 个测试（健康身体、SELF 证据被 redact、坏链 + L2 假证据、manifest 缺 db）；全量 **139 passed**。
+- 提交 `6ce09bd feat(memory): add a read-only audit of evidence and backups` 与 `f18e91e fix(audit): count sections whose heading carries a qualifier`，均已 push origin master 并部署到 `/home/dafeiyu/yugang`。
+- 云端真实验证（08:19–08:20 CST）：CLI `EXIT=0`，`ok=true`、`problems=[]`、`warnings=[]`；273 events，chain ok，SELF `self_20261024T231951378850_52599f`（「我相信什么」652 字、11 条证据），当前 L2 32 条、open/needs-evidence 卡 19 张、active practice 1 条、episodes 6 条、open loops 7 条、citations 9 条（0 孤儿），最新备份 `yugang-20261024T210915831953` 的 db 存在、integrity ok、chain ok、age 3.16h。`GET /audit` 同样返回 200 与同一份报告。
+- 这份体检证明的是「当前材料能互相追溯」，不是「她的判断都正确」；后者只能由 L2 的 falsifier 和未来经历继续检验。

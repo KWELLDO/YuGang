@@ -68,9 +68,17 @@ def _latest_backup(config: Any, now: datetime) -> dict[str, Any] | None:
     except (OSError, ValueError) as exc:
         return {"path": str(path), "valid": False, "error": f"{type(exc).__name__}: {exc}"}
     created = data.get("created_at")
+    db_path = path.with_name(path.name[: -len(".manifest.json")] + ".db")
+    try:
+        db_bytes = db_path.stat().st_size
+    except OSError:
+        db_bytes = None
     return {
         "path": str(path),
         "valid": True,
+        "db_path": str(db_path),
+        "db_exists": db_path.is_file(),
+        "db_bytes": db_bytes,
         "created_at": created,
         "age_hours": _age_hours(created, now),
         "events": data.get("events"),
@@ -228,6 +236,10 @@ def audit_memory(store: Any, config: Any, *, now: datetime | None = None) -> dic
     elif not backup.get("valid"):
         problems.append(f"最新备份的 manifest 无法读取：{backup.get('error')}")
     else:
+        if not backup.get("db_exists"):
+            problems.append(f"最新备份的数据库文件不存在：{backup.get('db_path')}")
+        elif not backup.get("db_bytes"):
+            problems.append(f"最新备份的数据库文件是空的：{backup.get('db_path')}")
         if backup.get("integrity") != "ok":
             problems.append(f"最新备份的数据库完整性不是 ok：{backup.get('integrity')}")
         if backup.get("chain_ok") is not True:

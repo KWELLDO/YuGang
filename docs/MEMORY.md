@@ -258,7 +258,8 @@ to check what this body claims?". It never writes, repairs, or redacts. It repor
 - episodes whose `event_ids` no longer resolve, and open loops with dead evidence or
   no movement for more than fourteen days (warning);
 - orphan citation confirmations;
-- the newest backup manifest: integrity, chain status, and age (warning after 48h).
+- the newest backup manifest: whether its `.db` exists and is non-empty, integrity, chain
+  status, and age (warning after 48h).
 
 Problems make the report `ok: false` and the CLI exits 1. Warnings do not. An audit is a
 reading of the body, not a modification of it; a redacted evidence id stays redacted.

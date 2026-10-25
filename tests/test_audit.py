@@ -15,6 +15,7 @@ def _write_backup_manifest(cfg, store, *, age_hours: float = 1.0) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     created = (utcnow() - timedelta(hours=age_hours)).isoformat()
     path = directory / "yugang-test.manifest.json"
+    (directory / "yugang-test.db").write_bytes(b"SQLite format 3\x00")
     path.write_text(
         json.dumps(
             {
@@ -56,6 +57,16 @@ def test_audit_reports_a_healthy_body(store, cfg):
     assert report["backup"]["valid"] is True
     section = next(item for item in report["self"]["sections"] if item["name"] == "我相信什么")
     assert section["chars"] > 0
+
+
+def test_audit_flags_a_manifest_whose_database_is_missing(store, cfg):
+    path = _write_backup_manifest(cfg, store)
+    (path.parent / "yugang-test.db").unlink()
+
+    report = audit_memory(store, cfg)
+    assert report["ok"] is False
+    assert report["backup"]["db_exists"] is False
+    assert "数据库文件不存在" in "\n".join(report["problems"])
 
 
 def test_audit_flags_missing_and_redacted_self_evidence(store, cfg):
