@@ -302,15 +302,18 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
 def cmd_probe(args: argparse.Namespace) -> int:
     """从进程外面检查她的身体：网关是否应答、记忆是否可信、钱和磁盘够不够。"""
-    from .health import append_history, collect_health, transition, write_health
+    from .health import append_history, collect_health, deep_ran_today, transition, write_health
 
     cfg = load_config(args)
     store = make_store(cfg)
     try:
+        # The day stamp belongs to the code that spends the money, so a missing key
+        # fails before the stamp is written and the paid probe still runs later today.
+        deep = bool(args.deep) or (bool(getattr(args, "deep_if_due", False)) and not deep_ran_today(cfg))
         runtime = None
-        if args.deep:
+        if deep:
             runtime = make_runtime(cfg, mock=bool(getattr(args, "mock", False)))
-        payload = collect_health(store, cfg, deep=bool(args.deep), runtime=runtime)
+        payload = collect_health(store, cfg, deep=deep, runtime=runtime)
         if args.write:
             payload["written"] = write_health(cfg, payload)
             payload["history_kept"] = append_history(cfg, payload)
@@ -595,6 +598,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("probe", help="从进程外体检：网关应答、记忆、磁盘、预算；--deep 真跑一次模型")
     p.add_argument("--deep", action="store_true", help="花一次极小的模型调用，验证凭据和网络还通")
+    p.add_argument(
+        "--deep-if-due",
+        action="store_true",
+        help="今天还没跑过付费探针时才加 --deep；定时器用这个，日戳由探针自己写",
+    )
     p.add_argument("--write", action="store_true", help="写 health.json 与 history.jsonl")
     p.add_argument("--alert", action="store_true", help="状态变化时写一条 L1（抑制重复告警）")
     p.set_defaults(func=cmd_probe)

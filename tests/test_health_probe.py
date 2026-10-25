@@ -16,6 +16,8 @@ import pytest
 from yugang.health import (
     append_history,
     collect_health,
+    deep_ran_today,
+    deep_stamp_path,
     health_path,
     history_path,
     probe_gateway,
@@ -142,6 +144,42 @@ def test_a_deep_probe_really_calls_the_model_and_records_the_cost(cfg, store):
     assert spent >= 0.0
     ledger = store.conn.execute("SELECT kind FROM budget_ledger WHERE day = ?", (day,)).fetchone()
     assert ledger is not None and ledger["kind"] == "probe"
+
+
+def test_a_deep_probe_claims_the_day_before_it_spends(cfg, store):
+    """The stamp belongs to whoever pays: written first, so a crash cannot re-bill."""
+    assert deep_ran_today(cfg) is False
+    collect_health(store, cfg, deep=True, runtime=MockRuntime(responder=lambda messages, purpose: "ok"))
+    assert deep_ran_today(cfg) is True
+    assert deep_stamp_path(cfg).read_text(encoding="utf-8").strip() != ""
+
+
+def test_a_shallow_probe_does_not_claim_the_paid_day(cfg, store):
+    collect_health(store, cfg)
+    assert deep_ran_today(cfg) is False
+
+
+def test_deep_if_due_spends_once_a_day_even_when_the_timer_keeps_ticking(cfg, store, capsys):
+    """The timer runs every quarter hour; the paid call is once per day."""
+    from yugang.cli import main
+
+    assert main(["--home", cfg.home, "--mock", "probe", "--deep-if-due"]) in (0, 1)
+    first = json.loads(capsys.readouterr().out)
+    assert first["model"] is not None
+
+    assert main(["--home", cfg.home, "--mock", "probe", "--deep-if-due"]) in (0, 1)
+    second = json.loads(capsys.readouterr().out)
+    assert second["model"] is None
+
+
+def test_an_explicit_deep_still_runs_on_a_day_that_was_already_claimed(cfg, store, capsys):
+    from yugang.cli import main
+
+    assert main(["--home", cfg.home, "--mock", "probe", "--deep-if-due"]) in (0, 1)
+    capsys.readouterr()
+    assert main(["--home", cfg.home, "--mock", "probe", "--deep"]) in (0, 1)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["model"] is not None
 
 
 def test_a_gateway_that_stops_answering_between_probes_is_caught(cfg, store, gateway):

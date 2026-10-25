@@ -49,6 +49,28 @@ def state_path(config: Any) -> Path:
     return health_dir(config) / "alert-state.json"
 
 
+def deep_stamp_path(config: Any) -> Path:
+    """The day the paid probe last ran.
+
+    The stamp lives next to the code that spends the money, not in the shell
+    wrapper: a config error before the probe starts must not consume the day, and
+    a crash after the call must not spend it again fifteen minutes later.
+    """
+    return health_dir(config) / "deep-probe.day"
+
+
+def deep_ran_today(config: Any, *, now: datetime | None = None) -> bool:
+    path = deep_stamp_path(config)
+    try:
+        return path.read_text(encoding="utf-8").strip() == day_key(now or utcnow())
+    except OSError:
+        return False
+
+
+def _stamp_deep(config: Any, *, now: datetime | None = None) -> None:
+    _atomic_write(deep_stamp_path(config), day_key(now or utcnow()))
+
+
 def probe_gateway(config: Any, *, timeout: float = GATEWAY_TIMEOUT_SECONDS) -> dict[str, Any]:
     """Ask the live process what it thinks, over the same port a user would."""
     http = getattr(config, "http", None)
@@ -155,6 +177,9 @@ def collect_health(
 
     model: dict[str, Any] | None = None
     if deep and runtime is not None:
+        # Stamp before the call, not after: the stamp exists to bound spending,
+        # and a crash between the call and the write would re-bill every tick.
+        _stamp_deep(config, now=now)
         model = _probe_model(store, config, runtime, now=now)
         if not model.get("ok"):
             problems.append(f"模型探针失败：{model.get('error') or '空回复'}")

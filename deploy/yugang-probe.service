@@ -7,6 +7,10 @@ Type=oneshot
 User=dafeiyu
 Group=dafeiyu
 WorkingDirectory=/home/dafeiyu/yugang
+# Same credentials as the gateway: the deep probe makes one real model call a day,
+# and a probe that cannot authenticate reports a healthy process forever.
+EnvironmentFile=/etc/dafeiyu-dsh.env
+Environment=PYTHONPATH=/home/dafeiyu/yugang/src
 ExecStart=/usr/local/sbin/yugang-probe.sh
 Nice=10
 MemoryMax=300M

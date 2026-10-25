@@ -72,6 +72,13 @@ sudo systemctl enable --now yugang-probe.timer
 systemctl list-timers yugang-probe.timer --no-pager
 ```
 
+The unit must carry `EnvironmentFile=/etc/dafeiyu-dsh.env`, like the gateway
+does. Without it the deep probe cannot authenticate, the unit exits before
+writing `health.json`, and the last healthy verdict stays on disk — a probe
+that dies every fifteen minutes looks exactly like a quiet day. Check it with
+`journalctl -u yugang-probe.service` after installing; the first real deployment
+here failed on this and reported success for the timer.
+
 It runs as `dafeiyu` every 15 minutes and writes `<home>/health/health.json`
 (the newest verdict), `history.jsonl` (last 500 verdicts), and `alert-state.json`.
 Checks: gateway reachable and self-reporting healthy, memory audit problems
@@ -81,13 +88,18 @@ recovery event says how many suppressed failures it closes.
 
 Once per local day it adds `--deep`: one model call with `max_tokens=16`, which
 is the only way to notice an expired key or a dead upstream before a human
-writes to her. `<home>/health/deep-probe.day` stamps the day so a restart loop
-cannot bill the model every run.
+writes to her. The timer passes `--deep-if-due` rather than deciding the day in
+shell, so `<home>/health/deep-probe.day` is written by the code that spends the
+money: a missing key fails before the stamp, and a crash after the call cannot
+bill again fifteen minutes later.
 
 ```bash
 sudo -u dafeiyu env PYTHONPATH=/home/dafeiyu/yugang/src \
-  python3 -m yugang --home /home/dafeiyu/.yugang probe --deep
+  python3 -m yugang --home /home/dafeiyu/.yugang probe --deep-if-due
 ```
+
+A by-hand run that must reach the model even on an already-claimed day uses
+`--deep`; the timer uses `--deep-if-due`.
 
 It exits 1 when anything is wrong, so it can also be run by hand before/after a
 deploy. It never repairs anything: a probe that silently fixes what it measures
