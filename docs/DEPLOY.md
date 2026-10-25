@@ -96,6 +96,9 @@ sudo -u dafeiyu env PYTHONPATH=/home/dafeiyu/yugang/src \
 ```
 
 The CLI exits 1 when `problems` is non-empty, so it can be used as a deployment gate.
+`warnings` do not change the exit code or the HTTP status; they flag things worth a human
+look, such as several current L2 judgments whose wording is highly similar. The audit only
+reports those groups; it never merges them.
 
 A small client wraps this so a phone/laptop only needs the existing SSH access:
 

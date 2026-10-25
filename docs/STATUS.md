@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-25 08:24 CST（Asia/Shanghai）
+更新时间：2026-10-25 08:49 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -17,7 +17,7 @@
 
 ## 已验证
 
-- 自动化测试：139 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、备份校验与恢复、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤、醒来时的身体状态读数）。
+- 自动化测试：147 passed（L1 哈希链、FTS5 中文回忆与未来确认加权、L2 falsifier/复核、SELF 版本与 diff、结构化 SELF 修订、觉察卡证据与睡去复核、睡眠应用与未闭合事项去重、睡去输出重试与失败日记、预算闸门、HTTP 鉴权、鱼缸页、邮件主题标签过滤与陌生人不标已读、同窗口续聊语义、崩溃恢复、备份完整性与 manifest、备份校验与恢复、操作员暂停/恢复与消息重放、worker 心跳健康检查、L1 隐私删除的读时遮盖与回忆过滤、醒来时的身体状态读数）。
 - 第一次云上醒来：能读 SELF.md 与 L1，SELF 仍是 v0，只有出生材料。
 - 服务重启后的连续性：第二条消息能复述第一次对话；醒来上下文把它标为「中断后的」，不是「睡了一觉」；L1 的 wake 事件记录 `interrupted=true` 和真实中断秒数。
 - 第一次自然睡去（2026-10-25 00:50:10 CST）：写了第一人称日记；从 L1 提炼 2 条带真实 evidence_refs 的 L2 判断；写入 L3 立场；新增一条未闭合事项；留下下次意图；本轮未改 SELF.md（`self_committed=false`）。
@@ -399,3 +399,22 @@
 - 提交 `6ce09bd feat(memory): add a read-only audit of evidence and backups` 与 `f18e91e fix(audit): count sections whose heading carries a qualifier`，均已 push origin master 并部署到 `/home/dafeiyu/yugang`。
 - 云端真实验证（08:19–08:20 CST）：CLI `EXIT=0`，`ok=true`、`problems=[]`、`warnings=[]`；273 events，chain ok，SELF `self_20261024T231951378850_52599f`（「我相信什么」652 字、11 条证据），当前 L2 32 条、open/needs-evidence 卡 19 张、active practice 1 条、episodes 6 条、open loops 7 条、citations 9 条（0 孤儿），最新备份 `yugang-20261024T210915831953` 的 db 存在、integrity ok、chain ok、age 3.16h。`GET /audit` 同样返回 200 与同一份报告。
 - 这份体检证明的是「当前材料能互相追溯」，不是「她的判断都正确」；后者只能由 L2 的 falsifier 和未来经历继续检验。
+
+
+### L2 再确认计数、重复提示与一次真实合并（08:40–08:49 CST，已部署并真实验证）
+
+- 动机：设计文档 `/home/kwelldo/agent-memory-design.md` 说记忆的重量来自「被未来的自己重新确认的次数」，不是写入时的自信。原先 `judgment_reviews` 已经记录 supported/refuted/needs-evidence，但这些复核只影响状态和 `event_confirmations`，没有在当前 L2 上显示「被后来自己确认过几次」；同时云端 32 条当前 L2 中有多组几乎重复的措辞。
+- 代码：
+  - `MemoryStore.judgment_review_counts(judgment_ids)`：一次查询返回每条判断的 supported/refuted/needs-evidence/total 与最近一次 review；只有显式 `supported` 算「再确认」，回忆和引用确认仍分开统计。
+  - 醒来上下文、睡去提示词、鱼缸页与 `judgment_list` 工具显示「未来自己确认过 N 次」；上下文明确写「只统计睡去时明确 supported 的复核，不代表客观真相；没有确认过不等于它错」。
+  - `MemoryStore.judgment_duplicate_groups(threshold=0.72)`：对 `current_judgments` 做 difflib 相似度提示，只提示、不自动合并；睡去提示词列出重复组并鼓励用 `judgment_reviews` 再次确认而不是新建重复判断；audit 把重复组作为 warning，不改变 `ok`。
+  - `judgment_list` 与醒来上下文现在返回/显示 `supersedes` 合并链，解决「旧判断不在当前视图」与「它是否被某条新判断取代」无法区分的问题。
+- 测试：新增 `tests/test_judgment_reconfirmation.py` 7 个测试（确认计数只算 supported、重复组排除被取代、睡去提示、工具计数、tank 计数、工具 lineage、醒来 lineage），audit 增加重复组 warning 测试；全量 **147 passed**，页面 JS `node --check` 通过。
+- 提交 `c7a09be feat(memory): count how often a later self reconfirms a judgment`（11 files, +303/-10）与 `b07190c feat(memory): expose the supersedes lineage she just used`（6 files, +60/-3），均已 push origin master；CI run `40147497284` 与 `40148048294` 均 success。
+- 真实闭环（08:40–08:49 CST）：
+  - 08:40:27 唤醒后她自己读到 3 条 `reconfirmations=1` 的判断：`judg_20261024T202107823458_57cfdf`、`judg_20261024T192637291598_33f736`、`judg_20261024T190552568154_a4dc0a`，并正确区分「再确认」「回忆命中」「引用确认」；她指出 `judg_20261024T190552563021_dd07d1` 与 `judg_20261024T190331208363_22e5db` 是同一条主张的两个副本。
+  - 08:40:51 第一次睡去返回 `judgment_supersedes=0`，没有真的合并；她在日记里承认「合并判断的事只开了头」。这说明「她说会做」不等于「系统落成」，失败被如实保留。
+  - 08:41:29 再唤醒后她回 L1 核对 claim/falsifier/证据，确认应合并；08:41:53 睡去返回 `judgments=1`、`judgment_supersedes=2`，新判断 `judg_20261025T004153185113_318812`（置信 0.8、10 条真实证据、supersedes 指向 dd07d1 与 22e5db）；当前 L2 从 32 条变为 31 条，audit 的重复组从 4 组降为 3 组。
+  - 08:42 她指出工具返回的当前 L2 没有 `supersedes` 字段，只能推断旧判断被移出视图；这正是随后 `b07190c` 要补的可见性缺口。部署后 08:47:48 再问，她用 `judgment_list` 直接读出 `supersedes=[dd07d1, 22e5db]`，并明确说这次是字段直接可读、不是凭记忆补的。
+- 云端最终状态：events=299、current L2=31、episodes=8、open/needs-evidence cards=21、active practice=1、open loops=7、citations=22（0 孤儿），budget 2.188502/5 元（chat 1.096154 + sleep 1.0537 + autonomous 0.038648），asleep，chain ok，audit `ok=true`，只有「3 组当前 L2 措辞高度相似」的 warning。
+- 当前留着的重复组是 33f736+5da0f8、b17212+055eb2+c7eb1b、140df6+c666f5；她已明确说这些不是同一主张，暂不合并。是否合并只能由她按 falsifier 和证据范围判断，系统不自动处理。
