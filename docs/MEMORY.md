@@ -47,6 +47,12 @@ writing a new one; if they really are the same claim, she can create one new jud
 `supersedes` pointing at several old rows. The hint never merges automatically, and the
 audit reports duplicate groups as a warning rather than a problem.
 
+A merged judgment carries its lineage in both directions. The fish tank already shows
+`supersedes`; the `judgment_list` tool now returns the same list, and waking prints
+`合并：这条判断取代了 evt...` under the current judgment. The old rows stay in
+`judgments()` history, but are absent from `current_judgments()`, so she can tell
+"not in the current view" apart from "never existed".
+
 ## L3 — current stance
 
 A thin, recomputed snapshot. It is not hand-edited and not a persona prompt. Each snapshot

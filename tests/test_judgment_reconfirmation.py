@@ -101,3 +101,39 @@ def test_tank_exposes_reconfirmations_for_the_page(store, cfg):
     row = next(item for item in tank["judgments"] if item["id"] == judgment.id)
     assert row["reconfirmations"] == 1
     assert row["reviews"]["supported"] == 1
+
+def test_judgment_list_tool_exposes_the_lineage(store, cfg):
+    evidence = store.append_event("human", "message", "合并两条旧判断")
+    first = _judgment(store, evidence, "旧判断一。")
+    second = _judgment(store, evidence, "旧判断二。")
+    merged = store.add_judgment(
+        "合并后的判断。",
+        "如果出现反例，则被推翻。",
+        [evidence.id],
+        0.8,
+        supersedes=[first.id, second.id],
+    )
+
+    toolbox = MemoryToolbox(store, cfg)
+    result = toolbox.run("judgment_list", {"limit": 10})
+    row = next(item for item in result["judgments"] if item["judgment_id"] == merged.id)
+    assert row["supersedes"] == [first.id, second.id]
+    assert all(item["judgment_id"] not in {first.id, second.id} for item in result["judgments"])
+
+
+def test_wake_context_shows_merged_lineage(store, cfg):
+    evidence = store.append_event("human", "message", "醒来看到合并后的判断")
+    first = _judgment(store, evidence, "旧判断一。")
+    second = _judgment(store, evidence, "旧判断二。")
+    merged = store.add_judgment(
+        "合并后的判断。",
+        "如果出现反例，则被推翻。",
+        [evidence.id],
+        0.8,
+        supersedes=[first.id, second.id],
+    )
+
+    context = build_wake_context(store, cfg, query="")
+    assert f"[{merged.id}]" in context.prompt
+    assert "合并：这条判断取代了" in context.prompt
+    assert first.id in context.prompt and second.id in context.prompt

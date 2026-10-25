@@ -64,7 +64,10 @@ def test_wake_context_separates_current_l2_from_l1_history(store, cfg):
     context = build_wake_context(store, cfg, query="")
     l2 = context.prompt.split("## 我最近的判断（L2，仅当前有效）")[1].split("\n## ")[0]
     assert new.id in l2
-    assert old.id not in l2
+    # The old row is no longer a current judgment, but the new row names it as
+    # the lineage it superseded. It must not appear as its own current entry.
+    assert f"- [{old.id}]" not in l2
+    assert "合并：这条判断取代了" in l2
     assert "历史记录，不是当前立场" in l2
 
 

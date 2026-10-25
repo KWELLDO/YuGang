@@ -288,6 +288,13 @@ def build_wake_context(
             lines.append(f"  反证：{judgment.falsifier}")
             if getattr(judgment, "evidence_refs", None):
                 lines.append("  证据：" + ", ".join(judgment.evidence_refs[:6]))
+            merged = store.superseded_targets(judgment.id)
+            if merged:
+                lines.append(
+                    "  合并：这条判断取代了 "
+                    + ", ".join(merged[:6])
+                    + "（旧判断仍在历史里，不在当前视图）"
+                )
         lines.append(
             "确认次数只统计我在睡去时明确写 supported 的复核，不代表客观真相；"
             "没有确认过不等于它错。"

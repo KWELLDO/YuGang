@@ -168,7 +168,10 @@ def episode_payload(episode: Episode, *, limit: int = 1000) -> dict[str, Any]:
 
 
 def judgment_payload(
-    judgment: Judgment, status: str, reviews: dict[str, Any] | None = None
+    judgment: Judgment,
+    status: str,
+    reviews: dict[str, Any] | None = None,
+    supersedes: list[str] | None = None,
 ) -> dict[str, Any]:
     counts = reviews or {}
     return {
@@ -187,6 +190,7 @@ def judgment_payload(
             "total": int(counts.get("total") or 0),
         },
         "last_review": counts.get("last"),
+        "supersedes": list(supersedes or []),
     }
 
 
@@ -363,6 +367,7 @@ class MemoryToolbox:
                     judgment,
                     self.store.judgment_status(judgment.id),
                     review_counts.get(judgment.id),
+                    self.store.superseded_targets(judgment.id),
                 )
                 for judgment in judgments
             ],
