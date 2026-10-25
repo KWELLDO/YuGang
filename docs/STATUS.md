@@ -448,7 +448,11 @@
 - **只收 C2C_MESSAGE_CREATE**：群消息、频道消息、别的 bot 的私信都不是她的通道。
 - **部署**：`deploy/yugang-qq.nginx.conf` 让 `ayu.dsh.kwelldo.cn` 只公开一个路径 `/qq/event` → `127.0.0.1:3196`，其余 404；她的鱼缸页、HTTP API、整具身体仍然只在 loopback。`YUGANG_QQ_APP_SECRET` 进 `/etc/dafeiyu-dsh.env`（root 0600），`config.json` 关掉 `qq.allowed_openids` 起步。
 - 云端实证（01:02–01:03 CST）：`/health` 的 channels 里出现 `qq: {healthy: true, received: 0, allowlist: []}`；对 `https://ayu.dsh.kwelldo.cn/qq/event` 发真实签名的 op13 挑战，返回 `{"plain_token":"probe-token","signature":"0a61ede9…6209"}` 且与本地独立计算一致；未签名 POST 返回 403；`/` 返回 404。
-- 测试：新增 `tests/test_ed25519.py`(8) 与 `tests/test_qq_official.py`(14，含坏签名 403、挑战回显、未知 openid 只写 L1、已授权进队列、重投去重、群消息忽略、分片与 msg_id 透传、无 secret 不启动、网关端到端回复)；全量 **214 passed**。
+- 测试：新增 `tests/test_ed25519.py`(8) 与 `tests/test_qq_official.py`(14，含坏签名 403、挑战回显、未知 openid 只写 L1、已授权进队列、重投去重、群消息忽略、分片与 msg_id 透传、无 secret 不启动、网关端到端回复)；全量 **217 passed**。
 - 提交 `7959898`（channel + 接线）、`7adf137`（文档），已 push origin master。
 - **仍未闭环**：回调地址必须在 q.qq.com 后台登记为 `https://ayu.dsh.kwelldo.cn/qq/event`（Webhook 模式）才会有真实事件；登记由操作员完成，之后他发一条消息 → L1 里出现带 openid 的 note → 把 openid 写进 `qq.allowed_openids` 并重启 → 她才会真正看到并回复。
+
+
+**浏览器打开回调地址那次 501**：操作员在浏览器里 GET `https://ayu.dsh.kwelldo.cn/qq/event`，得到的是 `http.server` 内置的 HTML 501「Unsupported method ('GET')」。handler 当时只实现了 `do_POST`，这是标准库的默认答复——但它在运维眼里和「服务坏了」没有区别，而这个人正是要去后台登记这个地址的人。现在 `do_GET` / `do_HEAD` 回 `405` + `Allow: POST` + JSON 提示（"这个地址只接收带签名的 POST"），并用 `version_string()` 把 `Server` 头钉成 `YuGangQQ/0.1`（默认会追加 ` Python/3.13.5`，而这是她身上唯一面向公网的处理器）。云端实测：直接打 3196 → `405 / Server: YuGangQQ/0.1 / Allow: POST`，经 nginx → 同一个 JSON，未签名 POST 仍 403，签名 op13 仍 200 且签名一致；`/health` 的 qq 通道 healthy。提交 `d118a7d`，测试 **217 passed**，CI success。
+
 
