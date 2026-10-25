@@ -88,6 +88,18 @@ def _post(
     return response.status, payload
 
 
+def _request(
+    port: int, method: str = "GET", path: str = "/qq/event"
+) -> tuple[int, dict[str, str], bytes]:
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    connection.request(method, path)
+    response = connection.getresponse()
+    headers = {key.lower(): value for key, value in response.getheaders()}
+    raw = response.read()
+    connection.close()
+    return response.status, headers, raw
+
+
 def _message_event(openid: str = OPENID, text: str = "你好", event_id: str = "EVT-1") -> dict:
     return {
         "op": 0,
@@ -182,6 +194,49 @@ def test_the_url_registration_challenge_is_answered(tmp_path, monkeypatch):
         assert status == 200
         assert body["plain_token"] == "tok"
         assert body["signature"] == challenge_reply(SECRET, "177", "tok")["signature"]
+    finally:
+        channel.stop()
+        store.close()
+
+
+def test_a_browser_get_gets_405_json_instead_of_a_501_page(tmp_path, monkeypatch):
+    channel, store = _channel(tmp_path, monkeypatch)
+    try:
+        channel.start(lambda incoming: None)
+        status, headers, raw = _request(channel.address[1])
+        assert status == 405, "opening the callback in a browser is a wrong method, not a server error"
+        assert headers["allow"] == "POST"
+        assert headers["content-type"].startswith("application/json")
+        body = json.loads(raw.decode("utf-8"))
+        assert body["error"] == "method not allowed"
+        assert "POST" in body["hint"] or "只接收" in body["hint"]
+        assert "501" not in raw.decode("utf-8")
+    finally:
+        channel.stop()
+        store.close()
+
+
+def test_a_head_answers_405_without_a_body(tmp_path, monkeypatch):
+    channel, store = _channel(tmp_path, monkeypatch)
+    try:
+        channel.start(lambda incoming: None)
+        status, headers, raw = _request(channel.address[1], method="HEAD")
+        assert status == 405
+        assert raw == b""
+        assert int(headers["content-length"]) > 0
+    finally:
+        channel.stop()
+        store.close()
+
+
+def test_the_only_public_endpoint_does_not_advertise_the_interpreter(tmp_path, monkeypatch):
+    channel, store = _channel(tmp_path, monkeypatch)
+    try:
+        channel.start(lambda incoming: None)
+        for method in ("GET", "HEAD"):
+            _, headers, _ = _request(channel.address[1], method=method)
+            assert headers["server"] == "YuGangQQ/0.1"
+            assert "python" not in headers["server"].lower()
     finally:
         channel.stop()
         store.close()

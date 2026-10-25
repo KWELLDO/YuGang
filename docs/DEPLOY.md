@@ -356,6 +356,14 @@ https://ayu.dsh.kwelldo.cn/qq/event
 and the platform performs its own URL verification (op 13) on save. If saving
 fails, the signature is wrong — check the secret, not the URL.
 
+Opening that URL in a browser proves nothing: a `GET` answers `405` with
+`{"error":"method not allowed",...}` and an `Allow: POST` header. That is
+deliberate. The stock `http.server` answer is an HTML `501` page, and a real
+deployment already returned one to a browser; it tells the operator nothing and
+looks like a broken endpoint. The `Server` header is pinned to
+`YuGangQQ/0.1` as well, so the one public endpoint does not advertise the
+interpreter version.
+
 First message from a new person:
 
 - The platform delivers `C2C_MESSAGE_CREATE` with their openid.

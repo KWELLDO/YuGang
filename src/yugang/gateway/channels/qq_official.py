@@ -103,6 +103,11 @@ class _QQServer(ThreadingHTTPServer):
 class _QQHandler(BaseHTTPRequestHandler):
     server_version = "YuGangQQ/0.1"
 
+    def version_string(self) -> str:
+        # The stock implementation answers with "YuGangQQ/0.1 Python/3.13.5", and this
+        # handler is the only part of her that answers on the public internet.
+        return self.server_version
+
     def log_message(self, format: str, *args: Any) -> None:
         return
 
@@ -110,13 +115,31 @@ class _QQHandler(BaseHTTPRequestHandler):
     def channel(self) -> "QQOfficialChannel":
         return self.server.channel  # type: ignore[attr-defined]
 
-    def _json(self, status: int, data: dict[str, Any]) -> None:
+    def _json(self, status: int, data: dict[str, Any], *, head_only: bool = False) -> None:
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if status == 405:
+            self.send_header("Allow", "POST")
         self.end_headers()
-        self.wfile.write(body)
+        if not head_only:
+            self.wfile.write(body)
+
+    def do_GET(self) -> None:  # noqa: N802 - http.server API
+        # Someone will always open the callback in a browser; the stock http.server
+        # answer to that is an HTML 501 page that advertises the method handling and
+        # says nothing about what this address is actually for.
+        self._json(
+            405,
+            {
+                "error": "method not allowed",
+                "hint": "这个地址只接收带签名的 POST（QQ 平台回调），用浏览器打开它不会发生任何事",
+            },
+        )
+
+    def do_HEAD(self) -> None:  # noqa: N802 - http.server API
+        self._json(405, {"error": "method not allowed", "hint": "POST only"}, head_only=True)
 
     def do_POST(self) -> None:  # noqa: N802 - http.server API
         if urlsplit(self.path).path not in ("/qq/event", "/qq"):
