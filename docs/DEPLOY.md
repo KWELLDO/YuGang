@@ -55,6 +55,44 @@ systemctl list-timers yugang-healthcheck.timer --no-pager
 Run it once by hand with `sudo systemctl start yugang-healthcheck.service` and
 check `journalctl -t yugang-healthcheck` after a real incident.
 
+### The probe: is anything actually reaching her?
+
+The watchdog above answers "is the process hung". It cannot answer "can a
+message still get in", "is the memory still honest", "is there disk and budget
+left". A bot that was alive and disconnected for 57 minutes looks perfectly
+healthy from the outside, and a quiet afternoon looks exactly like her sleeping.
+So a second timer asks from outside the process instead of trusting it:
+
+```bash
+sudo install -m 755 deploy/yugang-probe.sh /usr/local/sbin/yugang-probe.sh
+sudo install -m 644 deploy/yugang-probe.service /etc/systemd/system/
+sudo install -m 644 deploy/yugang-probe.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now yugang-probe.timer
+systemctl list-timers yugang-probe.timer --no-pager
+```
+
+It runs as `dafeiyu` every 15 minutes and writes `<home>/health/health.json`
+(the newest verdict), `history.jsonl` (last 500 verdicts), and `alert-state.json`.
+Checks: gateway reachable and self-reporting healthy, memory audit problems
+(chain, evidence, backups), free disk (<1G problem, <3G warning), budget left for
+today. The same fault is one L1 event per six hours, not one per run, and the
+recovery event says how many suppressed failures it closes.
+
+Once per local day it adds `--deep`: one model call with `max_tokens=16`, which
+is the only way to notice an expired key or a dead upstream before a human
+writes to her. `<home>/health/deep-probe.day` stamps the day so a restart loop
+cannot bill the model every run.
+
+```bash
+sudo -u dafeiyu env PYTHONPATH=/home/dafeiyu/yugang/src \
+  python3 -m yugang --home /home/dafeiyu/.yugang probe --deep
+```
+
+It exits 1 when anything is wrong, so it can also be run by hand before/after a
+deploy. It never repairs anything: a probe that silently fixes what it measures
+turns a fault into a delay.
+
 ## Access
 
 From a laptop:

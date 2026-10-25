@@ -1,0 +1,12 @@
+[Unit]
+Description=Probe her every fifteen minutes; one paid deep probe per day
+
+[Timer]
+OnBootSec=8min
+OnUnitActiveSec=15min
+AccuracySec=30s
+Persistent=true
+Unit=yugang-probe.service
+
+[Install]
+WantedBy=timers.target
