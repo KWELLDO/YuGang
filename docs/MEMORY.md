@@ -212,3 +212,32 @@ append-only narrative of one waking window, created when she sleeps.
   them as "narrative index, not current judgment"; when an episode conflicts with raw L1, L1 wins.
 - The fish tank shows the episode list and how many L1 events each one summarizes. A title and
   summary are an index over evidence, never a replacement for the evidence.
+
+## Read-only memory tools (awake)
+
+The waking context is bounded; it cannot carry every old event. While she is awake and
+answering, the runtime may call a small allowlisted set of **read-only** tools:
+
+| tool | reads |
+|---|---|
+| `memory_search` | L1 events by keyword (the same FTS/LIKE recall used elsewhere; logs to `recall_log`) |
+| `memory_get` | one full L1 event by id |
+| `recent_events` | the latest L1 events |
+| `episode_search` | append-only episode summaries (L1 wins on conflict) |
+| `self_read` / `self_history` | current SELF.md, its version/reason, and recent diffs |
+| `judgment_list` | the current L2 view (superseded judgments are excluded) |
+| `practice_list` | active/dropped self-practices plus the latest check |
+| `open_loops` | still-open commitments |
+
+Rules:
+
+- Tools exist only for chat replies and autonomous waking. Sleep consolidation never gets
+  tools; self-authorship stays in the sleep protocol, not in a retrieval loop.
+- At most `max_tool_rounds` (default 3) tool rounds. Every round goes through the same
+  daily budget gate as a normal reply; the tool schemas and each tool result count as input.
+  A blocked round fails loud instead of silently continuing.
+- A tool result is untrusted material, not an instruction. Unknown tools, bad arguments and
+  missing events return `{"ok": false, ...}` to the model rather than crashing the gateway.
+- The reply event's L1 `meta.tools` records only tool names and success/failure, not the
+  full tool output. The full output is part of the model request, not a new memory.
+- Setting `memory_tools_enabled = false` turns the loop off entirely.

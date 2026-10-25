@@ -11,6 +11,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..ids import day_key, now_iso, parse_ts, utcnow
+from ..memory.tools import MemoryToolbox
 from ..protocol.sleep import SleepResult, apply_sleep_result, build_sleep_messages, parse_sleep_output
 from ..protocol.wake import build_messages, build_wake_context, morning_check_messages, record_wake
 from ..selfmodel.awareness import (
@@ -24,6 +25,14 @@ from ..selfmodel.self_md import bootstrap_self
 from .budget import BudgetGuard
 from .channels.base import IncomingMessage
 from .window import WakeWindow
+
+
+class ToolBudgetExceeded(RuntimeError):
+    """A tool round would exceed the daily budget."""
+
+
+class ToolRoundLimitExceeded(RuntimeError):
+    """She kept calling tools past the configured round limit."""
 
 
 def _jsonable(value: Any) -> Any:
@@ -319,6 +328,90 @@ class GatewayService:
             "channels": channels,
         }
 
+    # ------------------------------------------------------------ memory tools
+    def _toolbox(self) -> MemoryToolbox | None:
+        if not bool(getattr(self.config, "memory_tools_enabled", True)):
+            return None
+        return MemoryToolbox(self.store, self.config, now_fn=self.now_fn)
+
+    def _tool_overhead_cny(self) -> float:
+        toolbox = self._toolbox()
+        if toolbox is None:
+            return 0.0
+        price_in, _ = self.budget.prices(getattr(self.config, "model", None))
+        schema_chars = len(json.dumps(toolbox.schemas(), ensure_ascii=False))
+        return schema_chars / 1_000_000.0 * price_in
+
+    def _complete_with_memory_tools(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        max_tokens: int,
+        kind: str,
+        user_facing: bool,
+        purpose: str = "chat",
+    ) -> tuple[Any, list[dict[str, Any]]]:
+        """Run the model, letting her look things up in her own memory.
+
+        Every round goes through the same budget gate. Tool schemas count as
+        input, and each tool result is appended to the next request, so a tool
+        loop cannot quietly spend past the daily budget.
+        """
+        if self.runtime is None:
+            raise RuntimeError("runtime is not configured")
+        toolbox = self._toolbox()
+        if toolbox is None:
+            return self.runtime.complete(messages, max_tokens=max_tokens, purpose=purpose), []
+        schemas = toolbox.schemas()
+        overhead = self._tool_overhead_cny()
+        rounds = max(0, int(getattr(self.config, "max_tool_rounds", 3)))
+        working = list(messages)
+        trace: list[dict[str, Any]] = []
+        for index in range(rounds + 1):
+            estimated = self.budget.estimate(working, max_tokens, self.config.model) + overhead
+            decision = self.budget.check(estimated, kind=kind, user_facing=user_facing, now=self.now_fn())
+            if not decision.allowed:
+                raise ToolBudgetExceeded(decision.reason)
+            completion = self.runtime.complete(
+                working,
+                max_tokens=max_tokens,
+                purpose=purpose,
+                tools=schemas,
+            )
+            self.budget.record_completion(
+                completion, kind=kind, now=self.now_fn(), user_facing=user_facing
+            )
+            calls = list(getattr(completion, "tool_calls", []) or [])
+            if not calls:
+                return completion, trace
+            if index >= rounds:
+                raise ToolRoundLimitExceeded(
+                    f"记忆工具调用超过 {rounds} 轮；停止继续调用，避免无界检索。"
+                )
+            working.append(
+                {"role": "assistant", "content": completion.text or "", "tool_calls": calls}
+            )
+            for call in calls:
+                function = call.get("function") or {}
+                name = str(function.get("name") or "")
+                arguments = function.get("arguments")
+                result = toolbox.run(name, arguments)
+                record: dict[str, Any] = {"name": name, "ok": bool(result.get("ok"))}
+                if not result.get("ok"):
+                    record["error"] = str(result.get("error") or "")[:300]
+                trace.append(record)
+                working.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": str(call.get("id") or ""),
+                        "name": name,
+                        "content": json.dumps(result, ensure_ascii=False),
+                    }
+                )
+        raise ToolRoundLimitExceeded(
+            f"记忆工具调用超过 {rounds} 轮；停止继续调用，避免无界检索。"
+        )
+
     def process_message(self, incoming: IncomingMessage) -> str | None:
         now = self.now_fn()
         if self.is_paused():
@@ -355,7 +448,11 @@ class GatewayService:
                 body=self._body_state(now),
             )
             self.window.touch(now)
-        messages = build_messages(context, incoming.content)
+        messages = build_messages(
+            context,
+            incoming.content,
+            tools_enabled=bool(getattr(self.config, "memory_tools_enabled", True)),
+        )
         # A second message in the same wake is a continuation of this
         # conversation, not a fresh retrieval. Keep the actual prior turns
         # (bounded) between the system context and the new user message.
@@ -363,20 +460,33 @@ class GatewayService:
         if history:
             messages[1:1] = history
         max_tokens = int(getattr(self.config, "reply_max_tokens", 2000))
-        estimated = self.budget.estimate(messages, max_tokens, self.config.model)
+        estimated = (
+            self.budget.estimate(messages, max_tokens, self.config.model)
+            + self._tool_overhead_cny()
+        )
         decision = self.budget.check(estimated, kind="chat", user_facing=True, now=now)
         if not decision.allowed:
             reply = BudgetGuard.fail_loud(decision.reason)
             self._finalize(incoming, reply, error=decision.reason, now=now)
             return reply
+        tool_trace: list[dict[str, Any]] = []
         try:
-            if self.runtime is None:
-                raise RuntimeError("runtime is not configured")
-            completion = self.runtime.complete(messages, max_tokens=max_tokens)
+            completion, tool_trace = self._complete_with_memory_tools(
+                messages,
+                max_tokens=max_tokens,
+                kind="chat",
+                user_facing=True,
+                purpose="chat",
+            )
+        except ToolBudgetExceeded as exc:
+            self._fail(incoming, f"记忆工具预算不足：{exc}")
+            return None
+        except ToolRoundLimitExceeded as exc:
+            self._fail(incoming, str(exc))
+            return None
         except Exception as exc:
             self._fail(incoming, f"模型调用失败：{type(exc).__name__}: {exc}")
             return None
-        self.budget.record_completion(completion, kind="chat", now=now)
         text, awareness = split_awareness_block((completion.text or "").strip())
         if not text:
             self._fail(incoming, "模型返回了空回复")
@@ -384,7 +494,7 @@ class GatewayService:
         self.window.touch(now)
         self.window.transcript.append({"role": "user", "content": incoming.content})
         self.window.transcript.append({"role": "assistant", "content": text})
-        self._finalize(incoming, text, now=now, awareness=awareness)
+        self._finalize(incoming, text, now=now, awareness=awareness, tools=tool_trace)
         return text
 
     def _buffer_while_paused(self, incoming: IncomingMessage, now: datetime) -> None:
@@ -436,6 +546,7 @@ class GatewayService:
         error: str | None = None,
         now: datetime | None = None,
         awareness: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> Any:
         now = now or self.now_fn()
         message_id = incoming.message_id
@@ -445,6 +556,8 @@ class GatewayService:
         meta: dict[str, Any] = {"reply": text, "channel": incoming.channel}
         if error:
             meta["error"] = error
+        if tools:
+            meta["tools"] = tools
         self.store.record_message(
             incoming.channel,
             text,
@@ -680,10 +793,14 @@ class GatewayService:
             new_wake=True,
             body=self._body_state(now),
         )
-        probe_messages = morning_check_messages(probe, reason=reason)
+        probe_messages = morning_check_messages(
+            probe,
+            reason=reason,
+            tools_enabled=bool(getattr(self.config, "memory_tools_enabled", True)),
+        )
         estimated = self.budget.estimate(
             probe_messages, int(getattr(self.config, "reply_max_tokens", 2000)), self.config.model
-        )
+        ) + self._tool_overhead_cny()
         decision = self.budget.check(estimated, kind="autonomous", user_facing=False, now=now)
         if not decision.allowed:
             self.store.append_event("system", "note", f"自主醒来被预算拦下：{decision.reason}", meta={"reason": reason})
@@ -698,16 +815,34 @@ class GatewayService:
             new_wake=True,
             body=self._body_state(now),
         )
-        messages = morning_check_messages(context, reason=reason)
+        messages = morning_check_messages(
+            context,
+            reason=reason,
+            tools_enabled=bool(getattr(self.config, "memory_tools_enabled", True)),
+        )
+        tool_trace: list[dict[str, Any]] = []
         try:
-            if self.runtime is None:
-                raise RuntimeError("runtime is not configured")
-            completion = self.runtime.complete(messages, max_tokens=int(getattr(self.config, "reply_max_tokens", 2000)))
+            completion, tool_trace = self._complete_with_memory_tools(
+                messages,
+                max_tokens=int(getattr(self.config, "reply_max_tokens", 2000)),
+                kind="autonomous",
+                user_facing=False,
+                purpose="autonomous",
+            )
+        except (ToolBudgetExceeded, ToolRoundLimitExceeded) as exc:
+            self.store.append_event(
+                "system",
+                "error",
+                f"自主醒来被记忆工具限制终止：{exc}",
+                meta={"reason": reason},
+                ts=now.isoformat(timespec="microseconds"),
+            )
+            self._end_wake()
+            return None
         except Exception as exc:
             self.store.append_event("system", "error", f"自主醒来失败：{type(exc).__name__}: {exc}")
             self._end_wake()
             return None
-        self.budget.record_completion(completion, kind="autonomous", now=now, user_facing=False)
         text, awareness = split_awareness_block((completion.text or "").strip())
         display = text or "（自主醒来没有留下可显示的文本。）"
         observation = self.store.append_event(
@@ -715,7 +850,7 @@ class GatewayService:
             "observation",
             display,
             actor=self.config.name,
-            meta={"reason": reason, "autonomous": True},
+            meta={"reason": reason, "autonomous": True, **({"tools": tool_trace} if tool_trace else {})},
             ts=now.isoformat(timespec="microseconds"),
         )
         if awareness is not None:

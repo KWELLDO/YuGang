@@ -37,19 +37,24 @@ class OpenAICompatRuntime:
 
     def complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         temperature: float = 0.7,
         max_tokens: int = 1200,
         purpose: str = "chat",
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str = "auto",
     ) -> Completion:
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
         }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = tool_choice
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(
             self.endpoint,
@@ -78,15 +83,20 @@ class OpenAICompatRuntime:
         message = choices[0].get("message") or {}
         finish_reason = str(choices[0].get("finish_reason") or "")
         text = message.get("content") or ""
-        if not isinstance(text, str) or not text.strip():
+        if not isinstance(text, str):
+            text = str(text)
+        raw_calls = message.get("tool_calls") or []
+        tool_calls: list[dict[str, Any]] = [call for call in raw_calls if isinstance(call, dict)]
+        if not text.strip() and not tool_calls:
             raise RuntimeError(f"model returned empty content: {body[:400]}")
         usage = parsed.get("usage") or {}
-        prompt_text = "\n".join(m.get("content", "") for m in messages)
+        prompt_text = "\n".join(str(m.get("content") or "") for m in messages)
         return Completion(
             text=text,
             input_tokens=int(usage.get("prompt_tokens") or estimate_tokens(prompt_text)),
             output_tokens=int(usage.get("completion_tokens") or estimate_tokens(text)),
             model=str(parsed.get("model") or self.model),
             finish_reason=finish_reason,
+            tool_calls=tool_calls,
             raw=parsed,
         )

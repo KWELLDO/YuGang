@@ -11,6 +11,7 @@ class Completion:
     output_tokens: int = 0
     model: str = ""
     finish_reason: str = ""
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -24,11 +25,13 @@ class Runtime(Protocol):
 
     def complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         temperature: float = 0.7,
         max_tokens: int = 1200,
         purpose: str = "chat",
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str = "auto",
     ) -> Completion:
         ...
 

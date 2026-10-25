@@ -102,6 +102,9 @@ class Config:
     request_timeout_seconds: int = 90
     reply_max_tokens: int = 2000
     sleep_max_tokens: int = 6000
+    # Read-only memory tools during a waking conversation.
+    memory_tools_enabled: bool = True
+    max_tool_rounds: int = 3
 
     # Budget (CNY per local day).
     daily_budget_cny: float = 5.0

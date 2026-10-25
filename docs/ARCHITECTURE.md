@@ -2,10 +2,10 @@
 
 ## Layers
 
-- **Memory core** (`src/yugang/memory`): SQLite, append-only events with hash chain, FTS5 recall, L2 judgments + reviews, L3 stance snapshots.
+- **Memory core** (`src/yugang/memory`): SQLite, append-only events with hash chain, FTS5 recall, L2 judgments + reviews, L3 stance snapshots, and the read-only memory toolbox she can call while awake.
 - **Self model** (`src/yugang/selfmodel`): SELF.md parse/render/diff/commit; awareness cards, including an optional inline awareness block in a live reply that the gateway strips, validates, and records.
 - **Protocols** (`src/yugang/protocol`): wake context/prompt; sleep consolidation prompt + parser + apply.
-- **Gateway** (`src/yugang/gateway`): always-on body, wake window state machine, budget guard, HTTP/email/OneBot channels.
+- **Gateway** (`src/yugang/gateway`): always-on body, wake window state machine, budget guard, HTTP/email/OneBot channels, and the bounded tool-call loop used by chat and autonomous waking.
 - **Runtime** (`src/yugang/runtime`): model adapter interface; mock for tests; OpenAI-compatible adapter for deployment.
 
 ## Channels
@@ -20,7 +20,8 @@
 2. L2 judgments require a falsifier and evidence refs; reviews are append-only.
 3. SELF.md changes are versions with a diff, reason, and real L1 evidence refs; never silently overwrite. Filling an empty section, adding a supported claim, and revising a refuted claim are all legitimate growth — not only "overturning" the old self.
 4. A wake never claims continuous experience; it records the time gap.
-5. Budget is enforced before the model call; failures are visible.
+5. Budget is enforced before every model call, including each tool round; failures are visible.
+6. Memory tools are read-only. They cannot write L1/L2/SELF; self-authorship stays in the sleep protocol.
 
 ## Wake window
 

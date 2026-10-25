@@ -45,6 +45,35 @@ def test_broadcast_records_a_missing_recipient_instead_of_dropping_it(cfg, store
     assert notes
 
 
+def _tool_call(name: str, arguments: dict, call_id: str = "call_1") -> dict:
+    return {
+        "id": call_id,
+        "type": "function",
+        "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)},
+    }
+
+
+def test_autonomous_wake_can_look_something_up_in_memory(cfg, store):
+    old = store.append_event("human", "message", "上次说过：鱼缸要先保证消息必回。")
+    channel = EmailLike()
+    cfg.email.allow_senders = ["owner@example.com"]
+    runtime = MockRuntime(
+        replies=["我查到上次的约定了。"],
+        tool_rounds=[[_tool_call("memory_get", {"event_id": old.id})]],
+    )
+    service = GatewayService(cfg, store, runtime, channels=[channel])
+
+    text = service.autonomous_wake("测试闹钟")
+
+    assert text == "我查到上次的约定了。"
+    observation = next(
+        event for event in store.events(kind="observation") if event.meta.get("autonomous")
+    )
+    assert observation.meta["tools"] == [{"name": "memory_get", "ok": True}]
+    tool_messages = [m for m in runtime.calls[1]["messages"] if m.get("role") == "tool"]
+    assert tool_messages and old.id in tool_messages[0]["content"]
+
+
 def test_autonomous_wake_strips_awareness_and_records_it_with_real_refs(cfg, store):
     channel = EmailLike()
     cfg.email.allow_senders = ["owner@example.com"]

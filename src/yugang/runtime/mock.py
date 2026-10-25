@@ -17,10 +17,12 @@ class MockRuntime:
         *,
         responder: Callable[[list[dict[str, str]], str], str] | None = None,
         fail: Exception | None = None,
+        tool_rounds: Iterable[list[dict]] | None = None,
     ):
         self._replies = list(replies or [])
         self._responder = responder
         self._fail = fail
+        self._tool_rounds = [list(round_calls) for round_calls in (tool_rounds or [])]
         self.calls: list[dict] = []
 
     def complete(
@@ -30,10 +32,30 @@ class MockRuntime:
         temperature: float = 0.7,
         max_tokens: int = 1200,
         purpose: str = "chat",
+        tools: list[dict] | None = None,
+        tool_choice: str = "auto",
     ) -> Completion:
-        self.calls.append({"messages": messages, "purpose": purpose, "temperature": temperature})
+        self.calls.append(
+            {
+                "messages": messages,
+                "purpose": purpose,
+                "temperature": temperature,
+                "tool_count": len(tools or []),
+            }
+        )
         if self._fail is not None:
             raise self._fail
+        if self._tool_rounds:
+            calls = self._tool_rounds.pop(0)
+            prompt = "\n".join(str(m.get("content") or "") for m in messages)
+            return Completion(
+                text="",
+                input_tokens=estimate_tokens(prompt),
+                output_tokens=0,
+                model=self.model,
+                tool_calls=calls,
+                raw={"mock": True, "purpose": purpose, "tool_calls": calls},
+            )
         if self._replies:
             text = self._replies.pop(0)
         elif self._responder is not None:
@@ -41,7 +63,7 @@ class MockRuntime:
         else:
             last = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
             text = f"（mock）我听到你了：{last[:80]}"
-        prompt = "\n".join(m.get("content", "") for m in messages)
+        prompt = "\n".join(str(m.get("content") or "") for m in messages)
         return Completion(
             text=text,
             input_tokens=estimate_tokens(prompt),
