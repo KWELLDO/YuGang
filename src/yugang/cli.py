@@ -473,6 +473,20 @@ def cmd_apply(args: argparse.Namespace) -> int:
         _print_json({"ok": False, "error": "没说要合哪个：给一个提案 id，或者 --auto 合所有待合的 auto 档。"})
         return 2
 
+    # 测试要跑成她的身份：合入进程是 root，而 root 在自己的 userns 里没有
+    # 第二个 uid 可退，套娃的 bwrap（测试里就有）起不来；而且「她的测试」
+    # 本来就该在她的 uid 下跑。取 home 的属主，不写死用户名。
+    drop_to = None
+    if os.geteuid() == 0:
+        try:
+            import pwd as _pwd
+
+            owner = Path(cfg.home).stat()
+            drop_to = (owner.st_uid, owner.st_gid)
+            _pwd.getpwuid(owner.st_uid)
+        except (KeyError, OSError):  # pragma: no cover - 取不到就退回原来的跑法
+            drop_to = None
+
     results = []
     for pid in wanted:
         result = apply_proposal(
@@ -485,6 +499,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
             allow_review=bool(getattr(args, "yes", False)),
             venv_python=paths.venv_python,
             test_timeout_seconds=float(paths.test_timeout_seconds),
+            drop_to=drop_to,
         )
         results.append(asdict(result))
     _print_json({"ok": all(item["ok"] for item in results), "results": results})

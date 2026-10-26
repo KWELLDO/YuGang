@@ -249,6 +249,7 @@ def apply_proposal(
     sandbox_run: Any = None,
     now_fn: Callable[[], Any] = utcnow,
     test_timeout_seconds: float = 600.0,
+    drop_to: tuple[int, int] | None = None,
 ) -> ApplyResult:
     """验证、测试、审批、快照、换装、重启、体检；失败自动回退。"""
     started = time.monotonic()
@@ -291,7 +292,9 @@ def apply_proposal(
         candidate = _prepare_candidate(candidates_dir, proposal_id, live_root, patch_path)
 
         stage = "test"
-        outcome = _run_tests(runner, candidate, venv_python, float(test_timeout_seconds))
+        outcome = _run_tests(
+            runner, candidate, venv_python, float(test_timeout_seconds), drop_to=drop_to
+        )
         env["failed_tests"] = list(outcome.failed)
         env["pytest_summary"] = outcome.summary
         if not outcome.ok:
@@ -615,7 +618,10 @@ def _prepare_candidate(
     """清空重建候选副本（= live 的拷贝 + 一个临时 git 树），再把 patch 打上去。"""
     if not _SAFE_NAME.match(proposal_id):
         raise ApplyError(f"提案 id 不合法：{proposal_id!r}")
-    _ensure_dir(candidates_dir, 0o700)
+    # 0o755, not 0o700: the tests run as her (see drop_to), and a directory only
+    # root can traverse would turn every proposal into "permission denied" for
+    # reasons that have nothing to do with the patch.
+    _ensure_dir(candidates_dir, 0o755)
     candidate = Path(candidates_dir) / proposal_id
     if candidate.exists() or candidate.is_symlink():
         _remove_path(candidate)
@@ -640,13 +646,36 @@ def _prepare_candidate(
         ["git", "-C", str(candidate), "apply", "-p1", str(patch_path)],
         "git apply",
     )
+    _open_for_reading(candidate)
     return candidate
 
 
+def _open_for_reading(root: Path) -> None:
+    """Make the candidate readable by the account the tests run as."""
+    for path in sorted(root.rglob("*"), key=lambda item: len(item.parts)):
+        try:
+            if path.is_dir():
+                path.chmod(0o755)
+            elif path.is_file():
+                path.chmod(0o644)
+        except OSError:  # pragma: no cover - 符号链接/竞态，读不到就算了
+            pass
+    try:
+        root.chmod(0o755)
+    except OSError:  # pragma: no cover
+        pass
+
+
 def _run_tests(
-    runner: Any, candidate: Path, venv_python: str, timeout_seconds: float
+    runner: Any,
+    candidate: Path,
+    venv_python: str,
+    timeout_seconds: float,
+    *,
+    drop_to: tuple[int, int] | None = None,
 ) -> _TestOutcome:
     command = f"{shlex.quote(str(venv_python))} {PYTEST_ARGS}"
+    extra: dict[str, Any] = {} if drop_to is None else {"drop_to": drop_to}
     try:
         outcome = runner(
             command,
@@ -654,6 +683,7 @@ def _run_tests(
             limits=SandboxLimits(timeout_seconds=timeout_seconds),
             env={"PYTHONDONTWRITEBYTECODE": "1"},
             backend="auto",
+            **extra,
         )
     except Exception as exc:  # noqa: BLE001 - 沙盒不可用也是"测试没通过"
         return _TestOutcome(

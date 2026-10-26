@@ -165,10 +165,15 @@ class FakeSandbox:
         )
         self.calls = []
 
-    def __call__(self, command, *, workdir, limits, env, backend):
+    def __call__(self, command, *, workdir, limits, env, backend, drop_to=None):
         self.calls.append(
             SimpleNamespace(
-                command=command, workdir=workdir, limits=limits, env=env, backend=backend
+                command=command,
+                workdir=workdir,
+                limits=limits,
+                env=env,
+                backend=backend,
+                drop_to=drop_to,
             )
         )
         return self.result
@@ -845,3 +850,47 @@ def _broken_run(*args, **kwargs):
 
 def _broken_disk(path):
     raise OSError("no such path")
+
+
+# --------------------------------------------------------------------------- #
+# 跑测试的身份
+# --------------------------------------------------------------------------- #
+
+
+def test_tests_run_as_her_when_drop_to_is_given(lane):
+    """合入进程是 root；测试要在她的 uid 下跑，否则套娃的 bwrap 起不来。"""
+    meta = build_proposal(lane, {"docs/STATUS.md": "# status\n# 改过\n"})
+    ops = FakeOps()
+    sandbox = FakeSandbox(ok=True)
+
+    result = run_apply(lane, meta["id"], ops, sandbox, drop_to=(1001, 1001))
+
+    assert result.ok is True
+    assert sandbox.calls[0].drop_to == (1001, 1001)
+
+
+def test_tests_get_no_drop_to_by_default(lane):
+    meta = build_proposal(lane, {"docs/STATUS.md": "# status\n# 改过\n"})
+    sandbox = FakeSandbox(ok=True)
+
+    run_apply(lane, meta["id"], FakeOps(), sandbox)
+
+    assert sandbox.calls[0].drop_to is None
+
+
+def test_candidate_is_opened_for_reading(tmp_path):
+    from yugang.apply import _open_for_reading
+
+    root = tmp_path / "candidate"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    root.chmod(0o700)
+    (root / "src").chmod(0o700)
+    (root / "src" / "a.py").chmod(0o600)
+
+    _open_for_reading(root)
+
+    assert root.stat().st_mode & 0o777 == 0o755
+    assert (root / "src").stat().st_mode & 0o777 == 0o755
+    assert (root / "src" / "a.py").stat().st_mode & 0o777 == 0o644
+

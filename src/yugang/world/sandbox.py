@@ -125,6 +125,7 @@ def run(
     limits: SandboxLimits = SandboxLimits(),
     backend: str = "auto",
     env: dict[str, str] | None = None,
+    drop_to: tuple[int, int] | None = None,
 ) -> SandboxResult:
     """Run /bin/sh -c <command> in workdir inside the sandbox.
 
@@ -141,6 +142,12 @@ def run(
     argv = _build_argv(
         backend_name, backend_path, python, command, workspace, limits, child_env
     )
+    if drop_to is not None:
+        # Start the backend as the account the code belongs to, not as whoever
+        # called us. Root inside its own userns maps to root outside, so a nested
+        # bwrap (the suite tests one) has no uid to fall back to; run as her and
+        # the namespace maps her, which is also the honest identity for her tests.
+        argv = ["setpriv", f"--reuid={drop_to[0]}", f"--regid={drop_to[1]}", "--clear-groups", "--", *argv]
     # bwrap receives its environment through --setenv, so it starts from nothing;
     # the unshare fallback has no such flags and gets the scrubbed dict directly.
     popen_env = {} if backend_name == "bubblewrap" else dict(child_env)
