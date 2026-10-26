@@ -568,3 +568,55 @@ def test_failures_are_ledgered(box: SelfToolbox, store: FakeStore) -> None:
     assert store.calls[-1]["tool"] == "source_propose"
     assert store.calls[-1]["ok"] is False
     assert "没有要提交的改动" in store.calls[-1]["detail"]
+
+
+def test_propose_cuts_from_the_newest_sync_not_the_first_commit(
+    box: SelfToolbox, paths: SelfWorkPaths
+) -> None:
+    """部署后镜像跟到 live：提案的 base 必须是那次同步，否则 diff 里会带着已经上线过的改动。"""
+    box.run(
+        "source_write",
+        {"path": "docs/STATUS.md", "content": "# status\n\n一\n", "message": "第一次"},
+    )
+    box.mirror._git("commit", "--allow-empty", "-m", "同步：把镜像跟到 live 上（操作员动作，不是她的改动）")
+    synced = box.mirror.head()
+    box.run(
+        "source_write",
+        {"path": "docs/STATUS.md", "content": "# status\n\n二\n", "message": "第二次"},
+    )
+
+    result = box.run("source_propose", {"summary": "只带第二次", "reason": "因为"})
+
+    assert result["ok"] is True
+    assert result["base_commit"] == synced
+    assert result["files"] == ["docs/STATUS.md"]
+    patch = (paths.proposals_dir / result["id"] / "patch.diff").read_text(encoding="utf-8")
+    # 一个文件、一处改动：base 若退回最初那个提交，patch 会把整个同步都带进来。
+    assert patch.count("diff --git") == 1
+    assert patch.count("-一") == 1 and patch.count("+二") == 1
+
+
+def test_propose_reads_apply_results_the_service_already_marked_done(
+    box: SelfToolbox, paths: SelfWorkPaths
+) -> None:
+    """成功的结果会被服务改名成 .json.done；看不见它，下一次提案就会退回最初那个提交。"""
+    box.run(
+        "source_write",
+        {"path": "docs/STATUS.md", "content": "# status\n\n一\n", "message": "第一次"},
+    )
+    applied = box.mirror.head()
+    paths.results_dir.mkdir(parents=True, exist_ok=True)
+    (paths.results_dir / "old.json.done").write_text(
+        json.dumps({"ok": True, "commit": applied, "ts": "2026-10-06T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+    box.run(
+        "source_write",
+        {"path": "docs/STATUS.md", "content": "# status\n\n二\n", "message": "第二次"},
+    )
+
+    result = box.run("source_propose", {"summary": "接着上次", "reason": "因为"})
+
+    assert result["ok"] is True
+    assert result["base_commit"] == applied
+

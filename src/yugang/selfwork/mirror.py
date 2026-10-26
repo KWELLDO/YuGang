@@ -466,6 +466,34 @@ class Mirror:
         ok, _ = self._git_quiet("cat-file", "-e", f"{name}^{{commit}}")
         return ok
 
+    def live_base(self) -> str | None:
+        """Newest commit that was a straight copy of live (initial build or a sync).
+
+        A proposal's patch has to be cut from the tree live actually has. The
+        initial commit is the wrong base once live has moved: the diff would
+        carry every change that has since shipped, and git apply would reject
+        it for reasons that have nothing to do with her work.
+        """
+        if not self._initialized():
+            return None
+        proc = self._run_git(["log", "--format=%H%x1f%s", "HEAD"])
+        if proc.returncode != 0:
+            return None
+        for line in proc.stdout.splitlines():
+            parts = line.split("\x1f")
+            if len(parts) < 2:
+                continue
+            commit, subject = parts[0].strip(), "\x1f".join(parts[1:]).strip()
+            if subject.startswith(self._FROM_LIVE_PREFIXES):
+                return commit
+        return self.first_commit()
+
+    def is_ancestor(self, older: str, newer: str) -> bool:
+        if not (self.exists(older) and self.exists(newer)):
+            return False
+        ok, _ = self._git_quiet("merge-base", "--is-ancestor", older, newer)
+        return ok
+
     def diff(self, base: str) -> str:
         if not self.exists(base):
             raise MirrorError(f"我的镜像里没有这个提交：{base}")

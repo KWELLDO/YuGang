@@ -535,7 +535,7 @@ class SelfToolbox:
             raise MirrorError("提案要有一句说明，讲讲这次改了什么。")
         reason = str(args.get("reason") or "").strip()
         head = mirror.head()
-        base = self._latest_applied_base(mirror) or mirror.first_commit()
+        base = self._proposal_base(mirror)
         if not head or not base or base == head:
             raise MirrorError("没有要提交的改动")
         files = mirror.changed_files(base)
@@ -579,6 +579,20 @@ class SelfToolbox:
 
     # -- helpers --------------------------------------------------------
 
+    def _proposal_base(self, mirror: Mirror) -> str | None:
+        """The commit the patch is cut from: the tree live has right now.
+
+        Live moves under the mirror in two ways — a sync after a deploy, and a
+        successful apply of her own proposal. Whichever happened later is the
+        current live tree; using the older one drags already-shipped changes
+        into the diff and makes git apply fail on hunks that are already there.
+        """
+        applied = self._latest_applied_base(mirror)
+        synced = mirror.live_base()
+        if applied and synced and mirror.is_ancestor(synced, applied):
+            return applied
+        return synced or applied or mirror.first_commit()
+
     def _latest_applied_base(self, mirror: Mirror) -> str | None:
         """The commit of the most recent successful apply, if we can still see it.
 
@@ -589,7 +603,12 @@ class SelfToolbox:
         """
         folder = Path(self.paths.results_dir)
         try:
-            paths = sorted(folder.glob("*.json"))
+            # .json.done are read-and-marked results: they are the *successful*
+            # ones the service has already told her about, and skipping them made
+            # every later proposal fall back to the very first commit.
+            paths = sorted(
+                [*folder.glob("*.json"), *folder.glob("*.json.done")]
+            )
         except OSError:
             return None
         best: tuple[tuple[float, str], str] | None = None
