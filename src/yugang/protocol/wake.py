@@ -321,7 +321,14 @@ def build_wake_context(
     # a rejected signature from some scanner. Those are bookkeeping, not her life,
     # and reading them out loud made her answer a greeting with a status report.
     # They stay in L1, and stay one tool call away.
-    recent = [event for event in raw_recent if event.source != "system"][-limit_recent:]
+    # Exception: a system row the operator wrote on purpose (meta.operator) is
+    # addressed to her — publishing her hands is not bookkeeping. Without this
+    # she woke up holding six tools she had never been told about.
+    recent = [
+        event
+        for event in raw_recent
+        if event.source != "system" or bool((event.meta or {}).get("operator"))
+    ][-limit_recent:]
     people = store.people(limit=20)
     names = {person_row.id: person_row.name for person_row in people}
     # On a user message, recall from what was just said. On an autonomous wake

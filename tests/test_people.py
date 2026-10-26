@@ -187,6 +187,19 @@ def test_recent_l1_hides_her_bookkeeping_but_keeps_people(store, cfg):
     assert "通道不健康" not in context.prompt
 
 
+def test_an_operator_system_note_is_not_hidden_as_bookkeeping(store, cfg):
+    store.append_event("system", "error", "体检未通过：网关没有应答")
+    store.append_event(
+        "system",
+        "note",
+        "你现在多了六个工具：web_fetch、web_search、files_*、sandbox_run。沙箱没有网络是刻意的。",
+        meta={"operator": True, "kind": "world_tools_published"},
+    )
+    context = build_wake_context(store, cfg, query="")
+    assert "六个工具" in context.prompt
+    assert "体检未通过" not in context.prompt
+
+
 def test_an_operator_note_is_not_hidden_as_bookkeeping(store, cfg):
     person = _boss(store)
     store.append_event(
