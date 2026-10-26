@@ -110,6 +110,39 @@ class HttpConfig:
 
 
 @dataclass
+class WorldConfig:
+    """What she may do to the world outside her memory.
+
+    Reading is reversible, acting is not, so the two halves are independent
+    switches. The sandbox has no network at all: that is what makes running a
+    command something she does not have to ask permission for, because a process
+    that cannot reach out cannot publish, post or leak.
+    """
+
+    enabled: bool = True
+    fetch_enabled: bool = True
+    search_enabled: bool = True
+    files_enabled: bool = True
+    sandbox_enabled: bool = True
+
+    fetch_timeout_seconds: float = 20.0
+    fetch_max_bytes: int = 2_000_000
+    fetch_max_chars: int = 20_000
+    search_limit: int = 5
+    search_timeout_seconds: float = 15.0
+
+    file_max_bytes: int = 1_000_000
+    file_max_chars: int = 20_000
+
+    sandbox_timeout_seconds: float = 30.0
+    sandbox_memory_mb: int = 1024
+    sandbox_cpu_seconds: int = 60
+    sandbox_max_output_chars: int = 6000
+    sandbox_max_file_mb: int = 16
+    sandbox_backend: str = "auto"  # auto | bubblewrap | unshare
+
+
+@dataclass
 class Config:
     home: str = "~/.yugang"
     db_path: str = "~/.yugang/yugang.db"
@@ -155,6 +188,7 @@ class Config:
     email: EmailConfig = field(default_factory=EmailConfig)
     onebot: OneBotConfig = field(default_factory=OneBotConfig)
     qq: QQConfig = field(default_factory=QQConfig)
+    world: WorldConfig = field(default_factory=WorldConfig)
 
     @classmethod
     def default(cls, home: str | None = None) -> "Config":
@@ -184,6 +218,8 @@ class Config:
                 cfg.onebot = OneBotConfig(**value)
             elif key == "qq" and isinstance(value, dict):
                 cfg.qq = QQConfig(**value)
+            elif key == "world" and isinstance(value, dict):
+                cfg.world = WorldConfig(**value)
             elif hasattr(cfg, key):
                 setattr(cfg, key, value)
         cfg.home = str(Path(cfg.home).expanduser())

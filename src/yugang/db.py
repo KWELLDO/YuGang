@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 6  # v2 judgment lineage, v3 practices, v4 practice checks, v5 citations, v6 episodes
+SCHEMA_VERSION = 7  # v2 judgment lineage, v3 practices, v4 practice checks, v5 citations, v6 episodes, v7 world ledger
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -256,6 +256,22 @@ CREATE TABLE IF NOT EXISTS redactions (
   replacement TEXT
 );
 
+-- Every look at the world and every act in it. The read side is here instead of L1
+-- so a day of browsing does not bury yesterday's events; the act side is also an
+-- L1 event, because an experiment she ran is part of her history.
+CREATE TABLE IF NOT EXISTS world_ledger (
+  id TEXT PRIMARY KEY,
+  ts TEXT NOT NULL,
+  day TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'read',
+  ok INTEGER NOT NULL DEFAULT 1,
+  detail TEXT NOT NULL DEFAULT '',
+  chars INTEGER NOT NULL DEFAULT 0,
+  ms INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_world_day ON world_ledger(day, tool);
+
 -- People she knows, and the handles they can reach her from. Not L1: L1 is what
 -- happened, this is who was there. last_seen moves; the events never do.
 CREATE TABLE IF NOT EXISTS people (
@@ -316,6 +332,9 @@ CREATE TRIGGER IF NOT EXISTS citation_confirmations_no_update BEFORE UPDATE ON c
 BEGIN SELECT RAISE(ABORT, 'citation_confirmations is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS citation_confirmations_no_delete BEFORE DELETE ON citation_confirmations
 BEGIN SELECT RAISE(ABORT, 'citation_confirmations is append-only'); END;
+
+CREATE TRIGGER IF NOT EXISTS world_ledger_no_delete BEFORE DELETE ON world_ledger
+BEGIN SELECT RAISE(ABORT, 'world_ledger is append-only'); END;
 
 CREATE TRIGGER IF NOT EXISTS episodes_no_update BEFORE UPDATE ON episodes
 BEGIN SELECT RAISE(ABORT, 'episodes is append-only'); END;

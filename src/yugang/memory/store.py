@@ -1815,6 +1815,77 @@ class MemoryStore:
             "by_kind": by_kind,
         }
 
+    def record_world_call(
+        self,
+        day: str,
+        tool: str,
+        *,
+        kind: str = "read",
+        ok: bool = True,
+        detail: str = "",
+        chars: int = 0,
+        ms: int = 0,
+        ts: str | None = None,
+    ) -> None:
+        """One row per look at the world / act in it.
+
+        Reads go here and not into L1: a morning of browsing would otherwise bury
+        the events that matter. Acts are also appended to L1 by the caller, because
+        an experiment she ran is part of her history, not just a log line.
+        """
+        self.conn.execute(
+            "INSERT INTO world_ledger(id, ts, day, tool, kind, ok, detail, chars, ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                new_id("world"),
+                ts or now_iso(),
+                day,
+                tool,
+                kind,
+                1 if ok else 0,
+                str(detail or "")[:500],
+                int(chars),
+                int(ms),
+            ),
+        )
+
+    def world_summary(self, day: str) -> dict[str, Any]:
+        rows = self.conn.execute(
+            "SELECT tool, kind, COUNT(*) AS calls, SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failed, "
+            "COALESCE(SUM(chars), 0) AS chars FROM world_ledger WHERE day = ? GROUP BY tool, kind",
+            (day,),
+        ).fetchall()
+        by_tool: dict[str, dict[str, Any]] = {}
+        calls = failed = chars = 0
+        for row in rows:
+            name = str(row["tool"])
+            entry = by_tool.setdefault(name, {"kind": str(row["kind"]), "calls": 0, "failed": 0, "chars": 0})
+            entry["calls"] += int(row["calls"])
+            entry["failed"] += int(row["failed"]) or 0
+            entry["chars"] += int(row["chars"])
+            calls += int(row["calls"])
+            failed += int(row["failed"]) or 0
+            chars += int(row["chars"])
+        return {"day": day, "calls": calls, "failed": failed, "chars": chars, "by_tool": by_tool}
+
+    def world_log(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT ts, tool, kind, ok, detail, chars, ms FROM world_ledger ORDER BY ts DESC LIMIT ?",
+            (max(1, min(200, int(limit))),),
+        ).fetchall()
+        return [
+            {
+                "ts": row["ts"],
+                "tool": row["tool"],
+                "kind": row["kind"],
+                "ok": bool(row["ok"]),
+                "detail": row["detail"],
+                "chars": int(row["chars"]),
+                "ms": int(row["ms"]),
+            }
+            for row in rows
+        ]
+
     # -------------------------------------------------------------------- misc
 
     def ref_exists(self, ref: str) -> bool:
