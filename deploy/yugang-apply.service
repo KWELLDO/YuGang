@@ -1,0 +1,11 @@
+[Unit]
+Description=YuGang: apply pending auto-tier proposals (tests must pass first)
+Documentation=https://github.com/KWELLDO/YuGang/blob/master/docs/SELFCHANGE.md
+After=network.target
+
+[Service]
+Type=oneshot
+Environment=PYTHONPATH=/home/dafeiyu/yugang/src
+ExecStart=/usr/bin/python3 -m yugang --home /home/dafeiyu/.yugang apply --auto
+TimeoutStartSec=1800
+Nice=10

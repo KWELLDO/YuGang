@@ -143,6 +143,22 @@ class WorldConfig:
 
 
 @dataclass
+class SelfChangeConfig:
+    """Her lane for changing herself: a writable mirror, tests, and proposals.
+
+    She may write her own copy and run its tests. Only the root-side applier can
+    touch the live tree, and it always leaves a rollback point behind. That
+    asymmetry is the whole point: she can try things, she cannot skip review.
+    """
+
+    enabled: bool = True
+    source_root: str = ""  # 空 = <home>/../yugang，即 live 副本
+    venv_python: str = "/opt/yugang-venv/bin/python"
+    max_file_bytes: int = 200_000
+    test_timeout_seconds: float = 600.0
+
+
+@dataclass
 class Config:
     home: str = "~/.yugang"
     db_path: str = "~/.yugang/yugang.db"
@@ -189,6 +205,7 @@ class Config:
     onebot: OneBotConfig = field(default_factory=OneBotConfig)
     qq: QQConfig = field(default_factory=QQConfig)
     world: WorldConfig = field(default_factory=WorldConfig)
+    self_change: SelfChangeConfig = field(default_factory=SelfChangeConfig)
 
     @classmethod
     def default(cls, home: str | None = None) -> "Config":
@@ -220,6 +237,8 @@ class Config:
                 cfg.qq = QQConfig(**value)
             elif key == "world" and isinstance(value, dict):
                 cfg.world = WorldConfig(**value)
+            elif key == "self_change" and isinstance(value, dict):
+                cfg.self_change = SelfChangeConfig(**value)
             elif hasattr(cfg, key):
                 setattr(cfg, key, value)
         cfg.home = str(Path(cfg.home).expanduser())

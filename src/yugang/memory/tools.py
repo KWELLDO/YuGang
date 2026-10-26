@@ -256,7 +256,7 @@ def self_payload(version: SelfVersion | None, text: str, *, limit: int = 8000) -
 class MemoryToolbox:
     """Execute the small allowlisted set of read-only tools."""
 
-    def __init__(self, store: Any, config: Any = None, *, now_fn=utcnow, world: Any = None):
+    def __init__(self, store: Any, config: Any = None, *, now_fn=utcnow, world: Any = None, extras: Any = ()):
         self.store = store
         self.config = config
         self.now_fn = now_fn
@@ -264,10 +264,17 @@ class MemoryToolbox:
         # a network-less sandbox) are a second toolbox joined here, so the model
         # sees one flat tool list while memory and world keep their own rules.
         self.world = world
+        # Further toolboxes join the same flat list the model sees. Each keeps its
+        # own guard rails: the source-mirror lane only touches ~/.yugang/self.
+        self.extras = [box for box in extras if box is not None]
 
     def schemas(self) -> list[dict[str, Any]]:
-        extra = self.world.schemas() if self.world is not None else []
-        return TOOL_SCHEMAS + extra
+        out = list(TOOL_SCHEMAS)
+        if self.world is not None:
+            out += list(self.world.schemas())
+        for box in self.extras:
+            out += list(box.schemas())
+        return out
 
     def names(self) -> set[str]:
         return {schema["function"]["name"] for schema in self.schemas()}
@@ -287,8 +294,10 @@ class MemoryToolbox:
         }
         handler = handlers.get(name)
         if handler is None:
-            if self.world is not None and name in self.world.names():
-                return self.world.run(name, arguments)
+            boxes = ([self.world] if self.world is not None else []) + self.extras
+            for box in boxes:
+                if name in box.names():
+                    return box.run(name, arguments)
             return {"ok": False, "tool": name, "error": f"unknown tool: {name}"}
         try:
             args = self._args(arguments)

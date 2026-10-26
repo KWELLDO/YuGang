@@ -360,6 +360,135 @@ def cmd_world(args: argparse.Namespace) -> int:
         store.close()
 
 
+def _self_paths(cfg: Any) -> Any:
+    """Where her source mirror, proposals and apply results live."""
+    from pathlib import Path
+
+    from .selfwork.mirror import SelfWorkPaths
+
+    lane = getattr(cfg, "self_change", None)
+    home = Path(cfg.home)
+    source = str(getattr(lane, "source_root", "") or "")
+    return SelfWorkPaths(
+        home=home,
+        source_root=Path(source).expanduser() if source else home.parent / "yugang",
+        venv_python=str(getattr(lane, "venv_python", "/opt/yugang-venv/bin/python")),
+        max_file_bytes=int(getattr(lane, "max_file_bytes", 200_000)),
+        test_timeout_seconds=float(getattr(lane, "test_timeout_seconds", 600.0)),
+    )
+
+
+def cmd_source(args: argparse.Namespace) -> int:
+    """她改自己的通道：镜像、提案、合入结果。只读，除非 --init 建镜像。"""
+    import json as _json
+    from pathlib import Path
+
+    from .selfwork.mirror import Mirror
+
+    cfg = load_config(args)
+    paths = _self_paths(cfg)
+    mirror = Mirror(paths.mirror_root, source=paths.source_root)
+    out: dict[str, Any] = {"ok": True, "enabled": bool(getattr(cfg.self_change, "enabled", False))}
+    if bool(getattr(args, "init", False)):
+        out["init"] = mirror.ensure()
+    out["mirror"] = mirror.status()
+    proposals = []
+    try:
+        for meta_path in sorted(Path(paths.proposals_dir).glob("*/meta.json"))[-10:]:
+            meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+            done = (Path(paths.results_dir) / f"{meta.get('id')}.json").exists()
+            proposals.append(
+                {
+                    "id": meta.get("id"),
+                    "created_ts": meta.get("created_ts"),
+                    "summary": meta.get("summary"),
+                    "tier": meta.get("tier"),
+                    "files": meta.get("files"),
+                    "tests": meta.get("tests"),
+                    "applied_result": done,
+                }
+            )
+    except Exception as exc:  # noqa: BLE001
+        out["proposals_error"] = f"{type(exc).__name__}: {exc}"
+    out["proposals"] = proposals
+    results = []
+    try:
+        for result_path in sorted(Path(paths.results_dir).glob("*.json"))[-10:]:
+            result = _json.loads(result_path.read_text(encoding="utf-8"))
+            results.append(
+                {
+                    "id": result.get("id"),
+                    "ts": result.get("ts"),
+                    "ok": result.get("ok"),
+                    "stage": result.get("stage"),
+                    "rolled_back": result.get("rolled_back"),
+                    "error": (result.get("error") or "")[:300],
+                }
+            )
+    except Exception as exc:  # noqa: BLE001
+        out["results_error"] = f"{type(exc).__name__}: {exc}"
+    out["results"] = results
+    _print_json(out)
+    return 0
+
+
+def cmd_apply(args: argparse.Namespace) -> int:
+    """root 侧唯一合入通道：验证、测试、快照、换装、重启、体检，失败自动回退。"""
+    import json as _json
+    import os
+    from dataclasses import asdict
+    from pathlib import Path
+
+    from .apply import apply_proposal
+
+    cfg = load_config(args)
+    paths = _self_paths(cfg)
+    live = Path(args.live).expanduser() if getattr(args, "live", None) else Path(cfg.home).parent / "yugang"
+    if os.geteuid() != 0 and not bool(getattr(args, "force", False)):
+        _print_json({"ok": False, "error": "合入要用 root 跑：它要写 live、重启 unit、留回滚点。本地演练加 --force。"})
+        return 2
+
+    wanted: list[str] = []
+    if getattr(args, "id", None):
+        wanted.append(str(args.id))
+    if bool(getattr(args, "auto", False)):
+        for meta_path in sorted(Path(paths.proposals_dir).glob("*/meta.json")):
+            try:
+                meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                continue
+            pid = str(meta.get("id") or "")
+            if not pid or meta.get("tier") != "auto":
+                continue
+            if (Path(paths.results_dir) / f"{pid}.json").exists():
+                continue
+            wanted.append(pid)
+    if not wanted:
+        if bool(getattr(args, "auto", False)) and not getattr(args, "id", None):
+            # The timer runs this every ten minutes; "nothing to do" is success.
+            _print_json({"ok": True, "results": [], "note": "没有待合的 auto 档提案"})
+            return 0
+        _print_json({"ok": False, "error": "没说要合哪个：给一个提案 id，或者 --auto 合所有待合的 auto 档。"})
+        return 2
+
+    results = []
+    for pid in wanted:
+        result = apply_proposal(
+            home=Path(cfg.home),
+            proposal_id=pid,
+            live_root=live,
+            proposals_dir=paths.proposals_dir,
+            results_dir=paths.results_dir,
+            approve=bool(getattr(args, "yes", False)),
+            allow_review=bool(getattr(args, "yes", False)),
+            venv_python=paths.venv_python,
+            test_timeout_seconds=float(paths.test_timeout_seconds),
+        )
+        results.append(asdict(result))
+    _print_json({"ok": all(item["ok"] for item in results), "results": results})
+    return 0 if all(item["ok"] for item in results) else 1
+
+
 def cmd_persona_check(args: argparse.Namespace) -> int:
     """只读检查：她的自我文件醒来时到底注入多少、哪里重复、哪里没日期、有没有凭据。"""
     cfg = load_config(args)
@@ -738,6 +867,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log", action="store_true", help="只列最近的世界调用（读与动分子）")
     p.add_argument("--limit", type=int, default=20, help="--log 时列几条")
     p.set_defaults(func=cmd_world)
+
+    p = sub.add_parser("source", help="她改自己的通道：git 镜像、提案、合入结果（只读；--init 建镜像）")
+    p.add_argument("--init", action="store_true", help="用 live 副本初始化她的 git 镜像（安装时用，以 dafeiyu 身份跑）")
+    p.set_defaults(func=cmd_source)
+
+    p = sub.add_parser("apply", help="root 侧合入提案：验证、测试、快照、换装、重启、体检，失败自动回退")
+    p.add_argument("id", nargs="?", help="提案 id，例如 p_20261026T113045_a1b2c3")
+    p.add_argument("--yes", action="store_true", help="批准 review 档（等价于 root 建 APPROVED 文件）")
+    p.add_argument("--auto", action="store_true", help="合入所有还没合过的 auto 档提案")
+    p.add_argument("--live", default=None, help="live 目录（默认 <home>/../yugang）")
+    p.add_argument("--force", action="store_true", help="非 root 也跑，只用于本地演练")
+    p.set_defaults(func=cmd_apply)
 
     p = sub.add_parser("probe", help="从进程外体检：网关应答、记忆、磁盘、预算；--deep 真跑一次模型")
     p.add_argument("--deep", action="store_true", help="花一次极小的模型调用，验证凭据和网络还通")

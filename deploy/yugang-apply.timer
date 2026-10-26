@@ -1,0 +1,10 @@
+[Unit]
+Description=YuGang: look for auto-tier proposals every ten minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+Unit=yugang-apply.service
+
+[Install]
+WantedBy=timers.target

@@ -354,11 +354,58 @@ class GatewayService:
         if not bool(getattr(self.config, "memory_tools_enabled", True)):
             return None
         world = WorldToolbox(self.config, self.store, now_fn=self.now_fn)
-        return MemoryToolbox(self.store, self.config, now_fn=self.now_fn, world=world)
+        return MemoryToolbox(
+            self.store, self.config, now_fn=self.now_fn, world=world, extras=[self._self_toolbox()]
+        )
 
     def _world_enabled(self) -> bool:
         world = getattr(self.config, "world", None)
         return bool(world is not None and getattr(world, "enabled", False))
+
+    def _self_change_enabled(self) -> bool:
+        lane = getattr(self.config, "self_change", None)
+        return bool(lane is not None and getattr(lane, "enabled", False))
+
+    def _test_backend(self) -> dict[str, Any]:
+        """Which sandbox backs source_test, and whether that is the strong one."""
+        try:
+            from ..world.sandbox import backend_available
+
+            name, path = backend_available()
+        except Exception as exc:  # noqa: BLE001 - status must never take /status down
+            return {"name": None, "weak": True, "error": f"{type(exc).__name__}: {exc}"}
+        return {"name": name, "path": path, "weak": name != "bubblewrap"}
+
+    def _self_paths(self) -> Any:
+        from pathlib import Path
+
+        from ..selfwork.mirror import SelfWorkPaths
+
+        lane = getattr(self.config, "self_change", None)
+        home = Path(self.config.home)
+        source = str(getattr(lane, "source_root", "") or "")
+        return SelfWorkPaths(
+            home=home,
+            source_root=Path(source).expanduser() if source else home.parent / "yugang",
+            venv_python=str(getattr(lane, "venv_python", "/opt/yugang-venv/bin/python")),
+            max_file_bytes=int(getattr(lane, "max_file_bytes", 200_000)),
+            test_timeout_seconds=float(getattr(lane, "test_timeout_seconds", 600.0)),
+        )
+
+    def _self_toolbox(self) -> Any:
+        """Her source-mirror lane, if it is switched on.
+
+        A missing module must not take the whole tool table down with it: memory
+        and world tools still work while the lane is being deployed.
+        """
+        if not self._self_change_enabled():
+            return None
+        try:
+            from ..selfwork.tools import SelfToolbox
+
+            return SelfToolbox(self._self_paths(), self.store, now_fn=self.now_fn)
+        except Exception:  # noqa: BLE001 - optional capability
+            return None
 
     def _tool_overhead_cny(self) -> float:
         toolbox = self._toolbox()
@@ -483,6 +530,7 @@ class GatewayService:
             incoming.content,
             tools_enabled=bool(getattr(self.config, "memory_tools_enabled", True)),
             world_enabled=self._world_enabled(),
+            self_change_enabled=self._self_change_enabled(),
         )
         # A second message in the same wake is a continuation of this
         # conversation, not a fresh retrieval. Keep the actual prior turns
@@ -768,6 +816,14 @@ class GatewayService:
             return
         self._last_idle_check = monotonic
         self._watch_channels()
+        # What the root-side applier did to her body arrives as a file, never as
+        # a phone call: the L1 chain keeps a single writer.
+        try:
+            self._ingest_apply_results()
+        except Exception as exc:  # noqa: BLE001 - the tick loop must not die
+            self.store.append_event(
+                "system", "error", f"收改动结果时出错：{type(exc).__name__}: {exc}"
+            )
         if self.is_paused():
             if self.window.is_awake():
                 self._end_wake()
@@ -840,6 +896,7 @@ class GatewayService:
             reason=reason,
             tools_enabled=bool(getattr(self.config, "memory_tools_enabled", True)),
             world_enabled=self._world_enabled(),
+            self_change_enabled=self._self_change_enabled(),
         )
         estimated = self.budget.estimate(
             probe_messages, int(getattr(self.config, "reply_max_tokens", 2000)), self.config.model
@@ -863,6 +920,7 @@ class GatewayService:
             reason=reason,
             tools_enabled=bool(getattr(self.config, "memory_tools_enabled", True)),
             world_enabled=self._world_enabled(),
+            self_change_enabled=self._self_change_enabled(),
         )
         tool_trace: list[dict[str, Any]] = []
         try:
@@ -1125,6 +1183,7 @@ class GatewayService:
             "budget_stage": self.budget.stage(now),
             "cache": self.budget.cache(now),
             "world": self._world_status(now),
+            "self_change": self._self_change_status(),
             "channels": [getattr(c, "name", type(c).__name__) for c in self.channels],
             "channel_health": self._channel_health(),
             "started_at": self.started_at,
@@ -1151,6 +1210,124 @@ class GatewayService:
             "sandbox": {"backend": backend, "detail": detail},
             "today": today,
         }
+
+    def _self_change_status(self) -> dict[str, Any]:
+        """What she may read of herself, what she proposed, what became of it."""
+        if not self._self_change_enabled():
+            return {"enabled": False}
+        from pathlib import Path
+
+        try:
+            from ..selfwork.mirror import Mirror
+        except Exception as exc:  # noqa: BLE001 - status must survive a missing lane
+            return {"enabled": True, "installed": False, "error": f"{type(exc).__name__}: {exc}"}
+
+        paths = self._self_paths()
+        toolbox = self._self_toolbox()
+        out: dict[str, Any] = {
+            "enabled": True,
+            "tools": sorted(toolbox.names()) if toolbox is not None else [],
+            "mirror": None,
+            "proposals": [],
+            "results": [],
+            # Her tests run in a sandbox. Which one matters: without bubblewrap
+            # the run is weaker, and a green result reads the same either way.
+            "test_backend": self._test_backend(),
+        }
+        try:
+            out["mirror"] = Mirror(paths.mirror_root, source=paths.source_root).status()
+        except Exception as exc:  # noqa: BLE001 - status must never take /status down
+            out["mirror"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        try:
+            for path in sorted(Path(paths.proposals_dir).glob("*/meta.json"))[-5:]:
+                meta = json.loads(path.read_text(encoding="utf-8"))
+                out["proposals"].append(
+                    {key: meta.get(key) for key in ("id", "created_ts", "summary", "tier", "files", "commit")}
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            for path in sorted(Path(paths.results_dir).glob("*.json"))[-3:]:
+                out["results"].append(json.loads(path.read_text(encoding="utf-8")))
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    def _ingest_apply_results(self) -> None:
+        """Read what the root-side applier did to her body, exactly once per file.
+
+        The applier runs outside her process and may restart it, so the result
+        arrives as a file on disk. Reading it here keeps a single writer for the
+        L1 hash chain: she learns what happened to her own body the same way she
+        learns everything else, as an event she can recall and argue with.
+        """
+        from pathlib import Path
+
+        results_dir = Path(self.config.home) / "apply-results"
+        if not results_dir.is_dir():
+            return
+        for path in sorted(results_dir.glob("*.json"))[:5]:
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except Exception as exc:  # noqa: BLE001 - a broken file must not loop
+                done = path.with_name(path.name + ".bad")
+                try:
+                    path.rename(done)
+                except OSError:
+                    pass
+                self.store.append_event(
+                    "system", "error", f"读不懂一份改动结果：{path.name}（{type(exc).__name__}）",
+                    meta={"file": str(path)},
+                )
+                continue
+            try:
+                self._write_apply_result_event(payload)
+            except Exception as exc:  # noqa: BLE001
+                self.store.append_event(
+                    "system", "error", f"把改动结果写成记忆时出错：{type(exc).__name__}: {exc}",
+                    meta={"file": str(path)},
+                )
+            try:
+                path.rename(path.with_name(path.name + ".done"))
+            except OSError:
+                pass
+
+    def _write_apply_result_event(self, payload: dict[str, Any]) -> None:
+        proposal = str(payload.get("id") or "?")
+        stage = str(payload.get("stage") or "?")
+        ok = bool(payload.get("ok"))
+        env = payload.get("env") or {}
+        base = str(env.get("base_commit") or "")[:7]
+        commit = str(env.get("commit") or payload.get("applied_commit") or "")[:7]
+        error = " ".join(str(payload.get("error") or "").split())[:400]
+        if ok:
+            text = (
+                f"我改了自己：{payload.get('summary') or proposal}。"
+                f"测试 {env.get('pytest_summary') or '通过'}，合入 {commit}。"
+            )
+            meta = {"proposal": proposal, "commit": commit, "tier": payload.get("tier"), "stage": "done"}
+        elif stage == "approve":
+            text = f"我提的改动 {proposal} 还在等批准：{error}"
+            meta = {"proposal": proposal, "stage": stage, "tier": payload.get("tier")}
+        elif payload.get("rolled_back"):
+            text = (
+                f"我的改动没过：在 {stage} 这一步失败。{error}。"
+                f"已经回退到 {base or '原来的版本'}，什么都没变。"
+            )
+            meta = {
+                "proposal": proposal,
+                "stage": stage,
+                "rolled_back": True,
+                "tier": payload.get("tier"),
+                "env": {
+                    key: env.get(key)
+                    for key in ("python", "unit_active", "health_ok", "failed_tests", "journal_tail")
+                },
+            }
+        else:
+            text = f"我的改动没过：在 {stage} 这一步失败。{error}。这次没有动到 live，也没有回退。"
+            meta = {"proposal": proposal, "stage": stage, "rolled_back": False, "tier": payload.get("tier")}
+        self.store.append_event("ai-observation", "action", text, meta=meta)
 
     def audit(self) -> dict[str, Any]:
         """Run the read-only memory audit. Never repairs anything."""

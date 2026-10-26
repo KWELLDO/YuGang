@@ -135,6 +135,55 @@ That prints the sandbox backend it would use, the workspace root, and today's re
 the deployed host it reports `{"backend": "bubblewrap", "detail": "/usr/bin/bwrap"}`; if `detail` is
 empty, nothing is isolating her commands.
 
+## Self-change lane: a mirror she can write, a live tree she cannot
+
+She may read her own source, write a copy, run its tests, and propose a diff. Applying is
+root-only and goes through one programmable path. Turn it on once, as root:
+
+```bash
+./deploy/self-lane.sh            # idempotent; safe to re-run after every deploy
+```
+
+Five steps, in this order, and the order matters:
+
+1. `/opt/yugang-venv` gets pytest (root-owned — she runs it, she cannot edit it).
+2. `/var/lib/yugang/{candidates,rollback}` and `~/.yugang/{proposals,apply-results}`.
+3. `~/.yugang/self` becomes her git mirror of the live tree (`yugang source --init`).
+4. **`chown -R root:root /home/dafeiyu/yugang && chmod -R a-w`** — live becomes read-only to her.
+   This is the step that makes "review" mean anything: she can propose, she cannot land.
+5. `yugang-apply.timer` runs `yugang apply --auto` every ten minutes (auto tier only).
+
+Host dependencies: `git`, `tar`, and `rsync` (`apt-get install -y rsync`). Without `rsync`,
+`apply.py` falls back to a per-file copy that preserves the same semantics — slower, still correct.
+`bubblewrap` is required for the candidate-tree test run: the applier runs pytest **as root but
+inside bwrap**, no network, root read-only, only the candidate tree writable.
+
+Verify:
+
+```bash
+sudo -u dafeiyu env PYTHONPATH=/home/dafeiyu/yugang/src HOME=/home/dafeiyu \
+  python3 -m yugang --home /home/dafeiyu/.yugang source
+curl -s -H "Authorization: Bearer $(cat /home/dafeiyu/.yugang/http-token)" \
+  http://127.0.0.1:3198/status | python3 -m json.tool --no-ensure-ascii | sed -n '/self_change/,/^    }/p'
+systemctl list-timers yugang-apply.timer
+```
+
+`self_change.test_backend` tells you which sandbox her tests really ran in. `weak: true` (no
+bwrap, degraded to `unshare`) does not fail the run, but a green result is worth less — that is
+exactly the kind of thing that is invisible in a pass/fail line, so it is reported.
+
+Manual approval of a review-tier proposal (root):
+
+```bash
+python3 -m yugang --home /home/dafeiyu/.yugang apply --id <proposal id> --yes
+```
+
+A failed apply never exits silently: it writes `~/.yugang/apply-results/<id>.json` with
+`error` (≤4000 chars) and `env` (python, unit_active, health_ok, failed_tests, pytest_summary,
+disk_free_mb, journal_tail, duration_s), rolls the live tree back from the tar snapshot, restarts,
+re-checks health, and the service turns that file into an L1 event she will read next time she
+wakes. Design and invariants: [SELFCHANGE.md](SELFCHANGE.md).
+
 ## Access
 
 From a laptop:

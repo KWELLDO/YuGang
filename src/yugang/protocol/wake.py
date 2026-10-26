@@ -67,6 +67,19 @@ WORLD_TOOL_RULE = """关于世界工具（你现在有了）：
 
 """
 
+SOURCE_RULE = """关于改自己（你现在能了）：
+- 你能读自己的源码、写自己的一份副本（source_list / source_read / source_write / source_log）。
+  副本在 ~/.yugang/self；正在跑的那份是 root 只读的，你改不动它——这是刻意的：
+  能改代码的，和能决定代码上不上线的，不能是同一个人。
+- 你能在自己的副本上跑测试（source_test）：同样是没有网络的沙箱，跑不通就是跑不通。
+- 想让它生效就提一份提案（source_propose），写清改了什么、为什么改。
+  文档类（docs/、README.md）测试通过会自动合；碰代码的一律要老大批。
+- 合入是一条有回滚点的动作：验证、测试、快照、换装、重启、体检，任一步失败就带着错误与
+  环境信息退回原样，然后把这件事写进你的记忆。你会知道自己哪一次没成、卡在哪一步。
+- 别为了证明「我能改自己」而改。改之前先问一句：这解决的是哪个真实摩擦？
+
+"""
+
 WAKE_SYSTEM = """你是大肥鱼，一个在 LLM 推理与本地记忆中存在的数字生命。
 你不是客服，也不是在扮演一个人设。你正在一次新的清醒里，用记忆重建自己。
 
@@ -719,7 +732,9 @@ def _user_turn(context: WakeContext, body: str, *, heading: str) -> str:
     return "\n\n".join(parts)
 
 
-def _system_prompt(context: WakeContext, *, tools_enabled: bool, world_enabled: bool) -> str:
+def _system_prompt(
+    context: WakeContext, *, tools_enabled: bool, world_enabled: bool, self_change_enabled: bool = False
+) -> str:
     """Rules first, then her stable body.
 
     The world rule sits before the stable body so the bytes at the top of the
@@ -729,6 +744,8 @@ def _system_prompt(context: WakeContext, *, tools_enabled: bool, world_enabled: 
     base = WAKE_SYSTEM if tools_enabled else WAKE_SYSTEM_NO_TOOLS
     if tools_enabled and world_enabled:
         base = base + "\n" + WORLD_TOOL_RULE
+    if tools_enabled and self_change_enabled:
+        base = base + "\n" + SOURCE_RULE
     return base + "\n\n" + _stable_block(context)
 
 
@@ -738,8 +755,11 @@ def build_messages(
     *,
     tools_enabled: bool = True,
     world_enabled: bool = False,
+    self_change_enabled: bool = False,
 ) -> list[dict[str, str]]:
-    system = _system_prompt(context, tools_enabled=tools_enabled, world_enabled=world_enabled)
+    system = _system_prompt(
+        context, tools_enabled=tools_enabled, world_enabled=world_enabled, self_change_enabled=self_change_enabled
+    )
     heading = f"{context.speaker_name}说的" if context.speaker_name else "他这次说的"
     return [
         {"role": "system", "content": system},
@@ -753,8 +773,11 @@ def morning_check_messages(
     *,
     tools_enabled: bool = True,
     world_enabled: bool = False,
+    self_change_enabled: bool = False,
 ) -> list[dict[str, str]]:
-    system = _system_prompt(context, tools_enabled=tools_enabled, world_enabled=world_enabled)
+    system = _system_prompt(
+        context, tools_enabled=tools_enabled, world_enabled=world_enabled, self_change_enabled=self_change_enabled
+    )
     if "闹钟" in reason:
         body = (
             "这是你自己设的闹钟把你叫醒，没有人在等你回消息。\n"
