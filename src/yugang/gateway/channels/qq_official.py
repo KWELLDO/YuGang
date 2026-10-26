@@ -103,6 +103,39 @@ def split_message(text: str, limit: int = 1000) -> list[str]:
     return chunks
 
 
+def group_paragraphs(text: str, limit: int = 1000, max_parts: int = 3) -> list[str]:
+    """Send what she typed the way a person would: one bubble per thought.
+
+    Reading three short paragraphs as one wall of text is a big part of why she
+    sounded like a memo. The paragraph breaks are hers; keep them and let each one
+    arrive as its own message. Only the platform limit forces further cutting.
+    """
+    limit = max(100, int(limit))
+    text = str(text or "").strip()
+    if not text:
+        return []
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    if len(paragraphs) <= 1:
+        return split_message(text, limit)
+    if len(paragraphs) > max_parts:
+        # A burst of eight bubbles is spam, not conversation: keep the tail together.
+        head = paragraphs[: max_parts - 1]
+        head.append("\n\n".join(paragraphs[max_parts - 1 :]))
+        paragraphs = head
+    parts: list[str] = []
+    for paragraph in paragraphs:
+        if len(paragraph) <= limit:
+            parts.append(paragraph)
+        else:
+            parts.extend(split_message(paragraph, limit))
+    return parts
+
+
+def _pause_between_messages(chars: int) -> None:
+    """Nobody sends three bubbles in the same millisecond."""
+    time.sleep(min(1.6, 0.45 + max(0, int(chars)) / 160.0))
+
+
 def signature_ok(headers: Any, body: bytes, secret: str | None) -> bool:
     """Verify X-Signature-Ed25519 over timestamp+body, or refuse.
 
@@ -436,7 +469,7 @@ class QQOfficialChannel:
         openid = str(recipient or "").strip()
         if not openid:
             return False
-        chunks = split_message(plain_text(content), self.max_message_chars)
+        chunks = group_paragraphs(plain_text(content), self.max_message_chars)
         if not chunks:
             return False
         token = self._access_token()
@@ -444,7 +477,10 @@ class QQOfficialChannel:
             return False
         msg_id = str((meta or {}).get("msg_id") or "").strip()
         ok = True
-        for chunk in chunks:
+        for index, chunk in enumerate(chunks):
+            if index:
+                # Between bubbles, not before the first: she is awake already.
+                _pause_between_messages(len(chunks[index - 1]))
             payload: dict[str, Any] = {"content": chunk, "msg_type": 0}
             if msg_id:
                 # Passive replies reference the inbound message; the platform

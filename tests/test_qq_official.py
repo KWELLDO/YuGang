@@ -9,11 +9,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from yugang.config import Config, QQConfig
-from yugang.gateway.channels import ed25519
+from yugang.gateway.channels import ed25519, qq_official
 from yugang.gateway.channels.qq_official import (
     QQOfficialChannel,
     challenge_reply,
     extract_text,
+    group_paragraphs,
     plain_text,
     signature_ok,
     split_message,
@@ -24,6 +25,14 @@ from yugang.runtime.mock import MockRuntime
 
 SECRET = "naOC0ocQE3shWLAfffVLB1rhYPG7"
 OPENID = "openid-abc123"
+
+
+@pytest.fixture(autouse=True)
+def _no_waiting(monkeypatch):
+    """Record the pauses between bubbles instead of actually waiting."""
+    pauses: list[int] = []
+    monkeypatch.setattr(qq_official, "_pause_between_messages", lambda chars: pauses.append(chars))
+    return pauses
 
 
 class _FakeQQAPI(BaseHTTPRequestHandler):
@@ -336,6 +345,54 @@ def test_send_posts_a_passive_reply_with_the_access_token(tmp_path, monkeypatch)
         server.server_close()
 
 
+def test_a_reply_written_in_paragraphs_arrives_as_separate_messages(tmp_path, monkeypatch, _no_waiting):
+    server, api_base = _fake_api()
+    channel, store = _channel(tmp_path, monkeypatch, allowed=[OPENID], api_base=api_base)
+    channel.token_url = f"{api_base}/app/getAppAccessToken"
+    try:
+        ok = channel.send(
+            OPENID,
+            "还行，刚醒，脑子有点糊\n\n你上次说的那个锁，还没等到你确认\n\n先放着也行",
+            meta={"msg_id": "EVT-1"},
+        )
+        sends = [call for call in _FakeQQAPI.calls if call["path"].startswith("/v2/users/")]
+        assert ok is True
+        assert [call["payload"]["content"] for call in sends] == [
+            "还行，刚醒，脑子有点糊",
+            "你上次说的那个锁，还没等到你确认",
+            "先放着也行",
+        ]
+        # Three thoughts, three bubbles, with a beat between them and none before
+        # the first - a pause before the opener is just latency.
+        assert len(_no_waiting) == 2
+    finally:
+        store.close()
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_burst_of_paragraphs_is_folded_into_three_bubbles(tmp_path, monkeypatch, _no_waiting):
+    server, api_base = _fake_api()
+    channel, store = _channel(tmp_path, monkeypatch, allowed=[OPENID], api_base=api_base)
+    channel.token_url = f"{api_base}/app/getAppAccessToken"
+    try:
+        text = "\n\n".join(f"第{index}件事" for index in range(6))
+        assert channel.send(OPENID, text, meta={"msg_id": "EVT-1"}) is True
+        sends = [call for call in _FakeQQAPI.calls if call["path"].startswith("/v2/users/")]
+        assert len(sends) == 3
+        assert sends[-1]["payload"]["content"].count("\n\n") == 3
+    finally:
+        store.close()
+        server.shutdown()
+        server.server_close()
+
+
+def test_group_paragraphs_cuts_a_single_long_paragraph_at_a_sentence():
+    assert group_paragraphs("一句话。" * 400, limit=200) != ["一句话。" * 400]
+    parts = group_paragraphs("一段\n\n二段\n\n三段", limit=1000)
+    assert parts == ["一段", "二段", "三段"]
+
+
 def test_a_full_round_trip_delivers_her_reply_to_the_openid(tmp_path, monkeypatch):
     server, api_base = _fake_api()
     monkeypatch.setenv("TEST_QQ_APP_SECRET", SECRET)
@@ -371,8 +428,8 @@ def test_a_full_round_trip_delivers_her_reply_to_the_openid(tmp_path, monkeypatc
         sends = [c for c in _FakeQQAPI.calls if c["path"].startswith("/v2/users/")]
         assert sends, "the reply never reached the QQ API"
         # Passive reply: without msg_id the platform may refuse it as proactive.
-        assert sends[0]["payload"]["msg_id"] == "EVT-1"
-        assert sends[0]["payload"]["content"].endswith("在吗")
+        assert all(call["payload"]["msg_id"] == "EVT-1" for call in sends)
+        assert "".join(call["payload"]["content"] for call in sends).endswith("在吗")
         assert store.latest_event("wake") is not None
     finally:
         service.stop()

@@ -91,7 +91,9 @@ def test_the_voice_rule_tells_her_this_is_a_plain_text_chat(store, cfg):
     system = messages[0]["content"]
     assert "怎么说话" in system
     assert "纯文本" in system
-    assert "三五句话" in system
+    # A person sends short bubbles, not one block; the rule has to say so.
+    assert "空一行" in system
+    assert "别把招呼接得那么整齐" in system
     # It belongs in the rule block at the top, not in the body that changes on
     # every wake: the system message has to stay byte-identical for the cache.
     assert system.index("怎么说话") < system.index("## ")
