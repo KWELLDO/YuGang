@@ -14,6 +14,7 @@ from yugang.gateway.channels.qq_official import (
     QQOfficialChannel,
     challenge_reply,
     extract_text,
+    plain_text,
     signature_ok,
     split_message,
 )
@@ -399,3 +400,40 @@ def test_qq_config_loads_from_json(tmp_path):
     assert cfg.qq.enabled is True
     assert cfg.qq.app_id == "1903699681"
     assert cfg.qq.allowed_openids == [OPENID]
+
+def test_her_reply_reaches_qq_as_plain_text(tmp_path, monkeypatch):
+    server, api_base = _fake_api()
+    channel, store = _channel(tmp_path, monkeypatch, allowed=[OPENID], api_base=api_base)
+    channel.token_url = f"{api_base}/app/getAppAccessToken"
+    try:
+        assert channel.send(OPENID, "**四层，从下往上：**\n\n- 一\n- 二\n\n# 标题\n看 `x`", meta={"msg_id": "EVT-1"}) is True
+        sends = [call for call in _FakeQQAPI.calls if call["path"].startswith("/v2/users/")]
+        content = "".join(call["payload"]["content"] for call in sends)
+        assert "**" not in content
+        assert "\n- " not in content
+        assert "#" not in content
+        assert "`" not in content
+        assert "四层，从下往上：" in content
+        assert "· 一" in content
+    finally:
+        store.close()
+        server.shutdown()
+        server.server_close()
+
+
+def test_split_message_cuts_at_a_boundary_not_in_the_middle_of_a_word():
+    text = "甲" * 750 + "\n\n" + "乙" * 400
+    chunks = split_message(text, 1000)
+    assert all(len(chunk) <= 1000 for chunk in chunks)
+    assert "".join(chunks) == text
+    # The paragraph break is inside the limit and past the halfway mark, so it wins.
+    assert chunks[0].endswith("\n\n")
+
+
+def test_plain_text_strips_what_a_person_would_not_type():
+    raw = "**判断**\n\n- 一\n- 二\n\n## 小标题\n`code` 和 [链接](https://a.b)\n> 引用"
+    text = plain_text(raw)
+    assert "**" not in text and "## " not in text
+    assert "· 一" in text and "· 二" in text
+    assert "判断" in text and "小标题" in text
+    assert "code" in text and "链接（https://a.b）" in text

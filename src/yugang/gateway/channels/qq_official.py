@@ -17,6 +17,7 @@ receive one. That asymmetry shapes this whole file:
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from collections import deque
@@ -41,10 +42,65 @@ def _header(headers: Any, name: str) -> str:
         return ""
 
 
+_BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
+_ITALIC = re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
+_HEADING = re.compile(r"(?m)^[ \t]{0,3}#{1,6}[ \t]*")
+_BULLET = re.compile(r"(?m)^([ \t]*)[-*+][ \t]+")
+_QUOTE = re.compile(r"(?m)^[ \t]{0,3}>[ \t]?")
+_FENCE = re.compile(r"(?m)^[ \t]*```[^\n]*$")
+_INLINE_CODE = re.compile(r"`([^`\n]+)`")
+_LINK = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
+
+
+def plain_text(text: str) -> str:
+    """Turn Markdown into what a person would have typed.
+
+    QQ's plain-text message type shows the raw bytes: a reply that says
+    **四层，从下往上：** reaches the reader as a row of asterisks, which reads
+    like a machine leaking its source. The prompt asks her not to format; this
+    is the net that catches the cases where she does it anyway.
+    """
+    text = str(text or "")
+    text = _FENCE.sub("", text)
+    text = _LINK.sub(lambda m: f"{m.group(1)}（{m.group(2)}）", text)
+    text = _BOLD.sub(lambda m: m.group(1) or m.group(2) or "", text)
+    text = _ITALIC.sub(lambda m: m.group(1), text)
+    text = _INLINE_CODE.sub(lambda m: m.group(1), text)
+    text = _HEADING.sub("", text)
+    text = _BULLET.sub(lambda m: m.group(1) + "· ", text)
+    text = _QUOTE.sub("", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def split_message(text: str, limit: int = 1000) -> list[str]:
+    """Split at a paragraph, then a line, then a sentence - never mid-word if we can help it.
+
+    The platform caps one message at a few thousand characters. Cutting at a fixed
+    offset turns a long answer into fragments that start mid-sentence, which is
+    exactly how a broken client looks.
+    """
     limit = max(100, int(limit))
     text = str(text or "")
-    return [text[i : i + limit] for i in range(0, len(text), limit)]
+    if not text:
+        return []
+    chunks: list[str] = []
+    rest = text
+    while len(rest) > limit:
+        window = rest[:limit]
+        cut = len(window)
+        for separator in ("\n\n", "\n", "。", "！", "？", "；"):
+            index = window.rfind(separator)
+            if index >= limit // 2:
+                cut = index + len(separator)
+                break
+        if cut <= 0:
+            cut = limit
+        chunks.append(rest[:cut])
+        rest = rest[cut:]
+    if rest:
+        chunks.append(rest)
+    return chunks
 
 
 def signature_ok(headers: Any, body: bytes, secret: str | None) -> bool:
@@ -380,7 +436,7 @@ class QQOfficialChannel:
         openid = str(recipient or "").strip()
         if not openid:
             return False
-        chunks = split_message(content, self.max_message_chars)
+        chunks = split_message(plain_text(content), self.max_message_chars)
         if not chunks:
             return False
         token = self._access_token()
