@@ -894,3 +894,32 @@ def test_candidate_is_opened_for_reading(tmp_path):
     assert (root / "src").stat().st_mode & 0o777 == 0o755
     assert (root / "src" / "a.py").stat().st_mode & 0o777 == 0o644
 
+
+
+def test_default_runner_forwards_drop_to(monkeypatch):
+    """_run_tests 给的 drop_to 必须真的传到沙盒；上一次它在这里丢了，整个提案都过不了。"""
+    from yugang import apply as apply_mod
+
+    seen = {}
+
+    def fake(command, *, workdir, limits, env, backend, drop_to=None):
+        seen["drop_to"] = drop_to
+        return SimpleNamespace(
+            ok=True,
+            exit_code=0,
+            stdout="1 passed",
+            stderr="",
+            timed_out=False,
+            duration_ms=1,
+            backend="bubblewrap",
+            network=False,
+            error=None,
+        )
+
+    monkeypatch.setattr("yugang.world.sandbox.run", fake)
+    apply_mod._default_sandbox_run(
+        "pytest", workdir="/tmp", limits=None, env={}, backend="auto", drop_to=(1001, 1001)
+    )
+
+    assert seen["drop_to"] == (1001, 1001)
+

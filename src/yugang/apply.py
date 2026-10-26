@@ -498,10 +498,20 @@ class _TestOutcome:
     error: str
 
 
-def _default_sandbox_run(command: str, *, workdir: str, limits: Any, env: dict, backend: str):
+def _default_sandbox_run(
+    command: str,
+    *,
+    workdir: str,
+    limits: Any,
+    env: dict,
+    backend: str,
+    drop_to: tuple[int, int] | None = None,
+):
     from .world.sandbox import run as sandbox_run
 
-    return sandbox_run(command, workdir=workdir, limits=limits, env=env, backend=backend)
+    return sandbox_run(
+        command, workdir=workdir, limits=limits, env=env, backend=backend, drop_to=drop_to
+    )
 
 
 def _empty_env() -> dict[str, Any]:
