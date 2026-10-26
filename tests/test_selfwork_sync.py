@@ -15,7 +15,23 @@ from yugang.selfwork import Mirror
 
 
 def _git(root: Path, *args: str) -> str:
-    proc = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True)
+    # Carry the identity explicitly: inside the sandbox HOME is empty, so a
+    # test that leaned on a machine's global git config fails there and only there.
+    proc = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=yugang",
+            "-c",
+            "user.email=yugang@localhost",
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     return proc.stdout.strip()
 
 
