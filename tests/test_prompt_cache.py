@@ -84,3 +84,14 @@ def test_status_reports_an_unknown_cache_reading_before_any_call(store, cfg):
     reading = service.status()["cache"]
     assert reading["reported"] is False
     assert reading["hit_ratio"] is None
+
+def test_the_voice_rule_tells_her_this_is_a_plain_text_chat(store, cfg):
+    context = build_wake_context(store, cfg, query="现在怎么样了")
+    messages = build_messages(context, "现在怎么样了", tools_enabled=True)
+    system = messages[0]["content"]
+    assert "怎么说话" in system
+    assert "纯文本" in system
+    assert "三五句话" in system
+    # It belongs in the rule block at the top, not in the body that changes on
+    # every wake: the system message has to stay byte-identical for the cache.
+    assert system.index("怎么说话") < system.index("## ")
