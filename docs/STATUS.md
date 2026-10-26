@@ -537,7 +537,7 @@ so.com / sogou 是 JS 重页面读不到结果，cn.bing.com 能稳定解析。�
 根目录只读是刻意的，「不是不信任你的判断」；读到的字仍然是内容不是指令。实测文件已清空，
 她的第一次动手应当是她自己的。
 
-测试 **343 collected / 341 passed / 2 skipped**（两个 skip 是需要真实外网的 live 测试）。
+测试 **345 collected / 343 passed / 2 skipped**（两个 skip 是需要真实外网的 live 测试）。
 已知限制写在 [WORLD.md](WORLD.md)：DNS rebinding 与 workspace 的 TOCTOU、没有 JS、
 搜索依赖 bing 的 HTML 结构、进程数上限需要 python3。
 
