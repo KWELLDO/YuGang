@@ -34,16 +34,26 @@ install -d -m 0700 "$STATE/candidates" "$STATE/rollback"
 install -d -o "$USER_NAME" -g "$USER_NAME" -m 0755 "$HOME_DIR/proposals" "$HOME_DIR/apply-results"
 
 say "3/5 her mirror of the live tree"
+# --sync on an existing mirror, not just "leave it alone": after a deploy a
+# stale mirror means she tests code that is no longer running, and her patches
+# are cut against a base that already shipped, so git apply fails for reasons
+# that have nothing to do with her change. Her commits stay; this adds one.
 if [ -d "$HOME_DIR/self/.git" ]; then
-  say "   mirror already exists: $HOME_DIR/self"
+  sudo -u "$USER_NAME" env PYTHONPATH="$LIVE/src" /usr/bin/python3 \
+    -m yugang --home "$HOME_DIR" source --sync
 else
   sudo -u "$USER_NAME" env PYTHONPATH="$LIVE/src" /usr/bin/python3 \
     -m yugang --home "$HOME_DIR" source --init
 fi
 
 say "4/5 live becomes read-only for her"
+# Read for everyone, write for nobody. Do not just chmod a-w: a tree built with
+# umask 077 is 0600, so subtracting write leaves 0400 root-only — and the
+# service, which runs as her, cannot read its own source and crash-loops. Set
+# the bits explicitly instead of subtracting from whatever happened to be there.
 chown -R root:root "$LIVE"
-chmod -R a-w "$LIVE"
+find "$LIVE" -type d -exec chmod 0555 {} +
+find "$LIVE" -type f -exec chmod 0444 {} +
 
 say "5/5 applier timer"
 install -m 0644 "$HERE/yugang-apply.service" /etc/systemd/system/yugang-apply.service

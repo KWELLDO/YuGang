@@ -69,7 +69,10 @@ MAX_FAILED_TESTS = 20
 STDERR_IN_ERROR = 800
 HEALTH_RAW_IN_ERROR = 500
 
-PYTEST_ARGS = "-m pytest -x -q -p no:cacheprovider"
+# -o addopts="" matters: pyproject already passes -q, and a second -q makes it -qq,
+# which suppresses the very summary line we carry into env.pytest_summary and
+# into her memory ("2 failed, 496 passed" instead of a line of dots).
+PYTEST_ARGS = '-m pytest -x -q -p no:cacheprovider -o addopts='
 REVIEW_MESSAGE = "这份改动要我批（review 档），还没有批准"
 TRUNCATION_MARKER = "\n…[已截断]…\n"
 

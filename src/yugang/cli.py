@@ -391,6 +391,8 @@ def cmd_source(args: argparse.Namespace) -> int:
     out: dict[str, Any] = {"ok": True, "enabled": bool(getattr(cfg.self_change, "enabled", False))}
     if bool(getattr(args, "init", False)):
         out["init"] = mirror.ensure()
+    if bool(getattr(args, "sync", False)):
+        out["sync"] = mirror.sync()
     out["mirror"] = mirror.status()
     proposals = []
     try:
@@ -868,8 +870,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=20, help="--log 时列几条")
     p.set_defaults(func=cmd_world)
 
-    p = sub.add_parser("source", help="她改自己的通道：git 镜像、提案、合入结果（只读；--init 建镜像）")
+    p = sub.add_parser(
+        "source", help="她改自己的通道：git 镜像、提案、合入结果（只读；--init 建镜像，--sync 跟到 live）"
+    )
     p.add_argument("--init", action="store_true", help="用 live 副本初始化她的 git 镜像（安装时用，以 dafeiyu 身份跑）")
+    p.add_argument(
+        "--sync",
+        action="store_true",
+        help="把镜像跟到 live 上，一次一个提交（每次部署后以 dafeiyu 身份跑；她的提交不会丢）",
+    )
     p.set_defaults(func=cmd_source)
 
     p = sub.add_parser("apply", help="root 侧合入提案：验证、测试、快照、换装、重启、体检，失败自动回退")

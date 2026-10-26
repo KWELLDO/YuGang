@@ -457,7 +457,10 @@ class SelfToolbox:
         from ..world.sandbox import SandboxLimits
 
         commit = mirror.head()
-        command = f"{python} -m pytest -x -q -p no:cacheprovider"
+        # -o addopts="" so the summary line survives: pyproject already passes -q,
+        # and -qq hides "496 passed, 2 skipped", which is the only part worth
+        # reading and the only part she can quote back to herself.
+        command = f"{python} -m pytest -x -q -p no:cacheprovider -o addopts="
         started = time.perf_counter()
         result = runner(
             command,

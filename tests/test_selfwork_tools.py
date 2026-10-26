@@ -329,7 +329,9 @@ def test_test_parses_pytest_output(paths: SelfWorkPaths, store: FakeStore) -> No
     assert result["backend"] == "fake"
 
     call = runner.calls[0]
-    assert call["command"] == f"{paths.venv_python} -m pytest -x -q -p no:cacheprovider"
+    # -o addopts= 不能少：pyproject 里已经有一个 -q，再来一个就是 -qq，
+    # 而 -qq 会把 "3 passed, 1 failed" 这行摘要吞掉，失败原因只剩一串点。
+    assert call["command"] == f"{paths.venv_python} -m pytest -x -q -p no:cacheprovider -o addopts="
     assert call["kwargs"]["workdir"] == str(toolbox.mirror.root)
     assert call["kwargs"]["backend"] == "auto"
     assert call["kwargs"]["env"] == {"PYTHONDONTWRITEBYTECODE": "1"}

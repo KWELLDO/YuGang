@@ -581,6 +581,96 @@ class Mirror:
         return {"created": True, "head": head, "files": files}
 
 
+    def sync(self) -> dict[str, Any]:
+        """Catch the mirror up to the live tree, as one commit on top.
+
+        After every deploy the mirror is behind. Left alone, that means she
+        tests code nobody runs any more, and her patches are cut against a base
+        that already shipped — `git apply --check` then fails for reasons that
+        have nothing to do with her change. Her own commits stay in the history;
+        this only adds one, and the message says it was a catch-up, not her edit.
+        """
+        if not self._initialized():
+            built = self.ensure()
+            return {"ok": True, "synced": True, "created": True, "head": built.get("head")}
+        if self.source is None:
+            raise MirrorError("没有来源目录，我同步不了。")
+        source = self.source.expanduser().resolve(strict=False)
+        root = self._root()
+        if source == root:
+            raise MirrorError("来源目录和镜像目录是同一个，不能这样拷。")
+        if not source.is_dir():
+            raise MirrorError(f"来源目录不存在：{source}")
+        before = self.head()
+        # Anything she left uncommitted is hers: keep it under its own message
+        # rather than folding it into an operator catch-up commit.
+        if self._dirty():
+            self._git("add", "--all")
+            self._git("commit", "--quiet", "-m", "同步前先把她没提交的改动存下来")
+        self._copy_includes(source)
+        self._prune_missing(source)
+        if not self._dirty():
+            return {"ok": True, "synced": False, "head": before, "note": "镜像已经和 live 一样"}
+        self._git("add", "--all")
+        self._git("commit", "--quiet", "-m", "同步：把镜像跟到 live 上（操作员动作，不是她的改动）")
+        head = self.head()
+        changed = self._git_quiet("diff", "--name-only", f"{before}..{head}")[1].split()
+        return {"ok": True, "synced": True, "head": head, "changed": len(changed), "files": changed[:50]}
+
+    def _dirty(self) -> bool:
+        """True when the worktree has edits git would commit.
+
+        _git_quiet returns (ok, stdout), not "did it print anything" — reading it
+        as a dirty flag is how an empty worktree ended up asking git to commit
+        nothing, which exits 1 and looked like a broken mirror.
+        """
+        ok, out = self._git_quiet("status", "--porcelain")
+        return ok and bool(out.strip())
+
+    _FROM_LIVE_PREFIXES = ("同步：", "从 live 建起镜像")
+
+    def _prune_missing(self, source: Path) -> int:
+        """Delete mirror files the live tree no longer has — but only those from live.
+
+        A blind prune is data loss: files she wrote and committed live only in her
+        mirror, so deleting everything live lacks erases her work. The history says
+        where a file came from — a catch-up commit or the initial copy — so only
+        those are removed. What she added or edited stays, even if live never had it.
+        """
+        root = self._root()
+        removed = 0
+        for name in self.includes:
+            src = source / name
+            dest = root / name
+            if not dest.exists():
+                continue
+            if src.is_dir() and dest.is_dir():
+                for path in sorted(dest.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+                    rel = path.relative_to(dest)
+                    if path.is_dir():
+                        try:
+                            path.rmdir()
+                        except OSError:
+                            pass
+                        continue
+                    if (src / rel).exists():
+                        continue
+                    if self._came_from_live(path):
+                        path.unlink()
+                        removed += 1
+            elif dest.is_file() and not src.exists() and self._came_from_live(dest):
+                dest.unlink()
+                removed += 1
+        return removed
+
+    def _came_from_live(self, path: Path) -> bool:
+        """Was this path last written by a catch-up copy rather than by her?"""
+        rel = self._relative(path)
+        _ok, subject = self._git_quiet("log", "-1", "--format=%s", "--", rel)
+        text = subject.strip()
+        return bool(text) and text.startswith(self._FROM_LIVE_PREFIXES)
+
+
 def _guess_source() -> Path:
     """The repository this code is installed from -- the deploy-time default."""
     return Path(__file__).resolve().parents[3]
