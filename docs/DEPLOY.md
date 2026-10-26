@@ -105,6 +105,36 @@ It exits 1 when anything is wrong, so it can also be run by hand before/after a
 deploy. It never repairs anything: a probe that silently fixes what it measures
 turns a fault into a delay.
 
+## World tools: bubblewrap, workspace, no network
+
+Six tools let her read the web and act in a directory (see [WORLD.md](WORLD.md)). Two host
+dependencies, both easy to miss on a minimal Debian box:
+
+```bash
+apt-get install -y bubblewrap          # sandbox_run backend; 0.13.1 tested
+bwrap --ro-bind / / --unshare-all -- /bin/true && echo ok
+```
+
+`bwrap` must exist or `sandbox_run` returns `SandboxUnavailable` and refuses to run — it never
+falls back to running unconfined. The sandbox also needs `python3` **inside** it for the one-line
+process-limit prelude (`RLIMIT_NPROC` cannot be set in `preexec_fn`: bwrap's own `clone` would fail,
+because the kernel charges it to the caller's thousand-odd threads). No `python3` → same refusal.
+
+Her workspace defaults to `<home>/workspace`; it is created on first use, owned by `dafeiyu`, mode
+0700, and it is the **only** path the sandbox gets read-write. Files she writes are 0600 and land via
+`mkstemp` + `os.replace`, so a crash mid-write cannot leave a half file.
+
+Verify a deployment from outside her head:
+
+```bash
+sudo -u dafeiyu env PYTHONPATH=/home/dafeiyu/yugang/src HOME=/home/dafeiyu \
+  python3 -m yugang --home /home/dafeiyu/.yugang world
+```
+
+That prints the sandbox backend it would use, the workspace root, and today's read/act counts. On
+the deployed host it reports `{"backend": "bubblewrap", "detail": "/usr/bin/bwrap"}`; if `detail` is
+empty, nothing is isolating her commands.
+
 ## Access
 
 From a laptop:
