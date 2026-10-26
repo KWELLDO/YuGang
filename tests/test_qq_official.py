@@ -431,6 +431,20 @@ def test_a_rejected_send_keeps_what_the_platform_actually_said(tmp_path, monkeyp
         server.server_close()
 
 
+def test_an_unstarted_channel_has_no_opinion_about_its_health(tmp_path, monkeypatch):
+    channel, store = _channel(tmp_path, monkeypatch, allowed=[OPENID])
+    try:
+        # Stopped is not sick: the watcher writes an L1 alarm on healthy=False,
+        # and a restart used to look like her body breaking.
+        assert channel.health()["healthy"] is None
+        channel.note_rejection()
+        assert channel.rejected_signatures == 1
+        assert channel.last_error is None
+        assert channel.health()["last_rejection_at"] is not None
+    finally:
+        store.close()
+
+
 def test_group_paragraphs_cuts_a_single_long_paragraph_at_a_sentence():
     assert group_paragraphs("一句话。" * 400, limit=200) != ["一句话。" * 400]
     parts = group_paragraphs("一段\n\n二段\n\n三段", limit=1000)

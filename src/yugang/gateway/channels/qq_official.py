@@ -311,6 +311,7 @@ class QQOfficialChannel:
         self._token_lock = threading.Lock()
         self.received_count = 0
         self.rejected_signatures = 0
+        self.last_rejection_at: float | None = None
         self.unknown_openids: list[str] = []
         self.last_error: str | None = None
 
@@ -346,10 +347,18 @@ class QQOfficialChannel:
         return (self.webhook_host, self._port)
 
     def health(self) -> dict[str, Any]:
+        if self._server is None:
+            # Not started, or stopped on purpose: no opinion, not a fault. Saying
+            # False here wrote "通道不健康：qq（unknown）" into her L1 on every
+            # restart, and she read her own body as broken.
+            healthy: bool | None = None
+        else:
+            healthy = bool(self._thread is not None and self._thread.is_alive())
         return {
-            "healthy": self._thread is not None and self._thread.is_alive(),
+            "healthy": healthy,
             "received": self.received_count,
             "rejected_signatures": self.rejected_signatures,
+            "last_rejection_at": self.last_rejection_at,
             "allowlist": sorted(self.allowed_openids),
             "unknown_openids": self.unknown_openids[-5:],
             "last_error": self.last_error,
@@ -365,8 +374,11 @@ class QQOfficialChannel:
         return os.environ.get(env)
 
     def note_rejection(self) -> None:
+        # A stranger POSTing garbage to a public URL is not her channel breaking.
+        # Count it, so a real signature problem is still visible on /health, but
+        # keep it out of last_error and out of the L1 alarm she wakes up to.
         self.rejected_signatures += 1
-        self.last_error = "签名验证失败"
+        self.last_rejection_at = time.time()
 
     # ---------------------------------------------------------------- inbound
     def accept_event(self, event: dict[str, Any]) -> tuple[int, dict[str, Any]]:
