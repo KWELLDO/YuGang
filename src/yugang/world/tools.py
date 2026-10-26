@@ -374,7 +374,11 @@ class WorldToolbox:
             raise ValueError("command 不能为空")
         ceiling = min(120, max(1, int(world.sandbox_timeout_seconds)))
         timeout = float(self._clip_int(args.get("timeout_seconds"), int(world.sandbox_timeout_seconds), 1, ceiling))
-        workdir = self._workspace_root() / "sandbox"
+        # Commands run where her files are, not in a sibling directory of their
+        # own: a file written with files_write must be visible to `ls` and to
+        # `python3 script.py`. The first live run had her write note.md and then
+        # report, correctly, that the sandbox looked empty.
+        workdir = self._workspace_root()
         workdir.mkdir(parents=True, exist_ok=True)
         limits = SandboxLimits(
             timeout_seconds=timeout,

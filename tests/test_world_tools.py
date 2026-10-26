@@ -137,7 +137,7 @@ def test_the_sandbox_runs_a_command_and_cannot_reach_the_network(env):
         "except Exception as exc:",
         "    print('BLOCKED', type(exc).__name__)",
     ])
-    assert box.run("files_write", {"path": "sandbox/probe.py", "content": probe + chr(10)})["ok"] is True
+    assert box.run("files_write", {"path": "probe.py", "content": probe + chr(10)})["ok"] is True
 
     result = box.run("sandbox_run", {"command": "python3 probe.py"})
     assert result["ok"] is True, result
@@ -170,6 +170,17 @@ def test_a_command_leaves_an_experience_behind(env):
     assert len(acts) == 1
     assert "沙箱" in acts[0].content
     assert acts[0].meta["network"] is False
+
+
+def test_a_written_file_is_visible_to_a_command(env):
+    _sandbox_or_skip()
+    cfg, store = env
+    box = _box(cfg, store)
+    box.run("files_write", {"path": "note.md", "content": "她写的字"})
+    result = box.run("sandbox_run", {"command": "cat note.md"})
+    assert result["ok"] is True, result
+    assert "她写的字" in result["stdout"]
+    assert not result["cwd"].rstrip("/").endswith("/sandbox")
 
 
 # ------------------------------------------------------------------- wiring
