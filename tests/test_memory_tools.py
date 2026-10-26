@@ -78,7 +78,7 @@ def test_tool_round_limit_fails_loud_instead_of_looping(env):
     try:
         reply = service.chat("一直查下去", timeout=15)
         assert reply is not None
-        assert "记忆工具调用超过 1 轮" in reply
+        assert "工具调用超过 1 轮" in reply
         assert len(runtime.calls) == 2
         failed = [m for m in store.pending_messages() if m.status == "failed"]
         assert failed

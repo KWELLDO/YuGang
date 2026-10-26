@@ -256,13 +256,21 @@ def self_payload(version: SelfVersion | None, text: str, *, limit: int = 8000) -
 class MemoryToolbox:
     """Execute the small allowlisted set of read-only tools."""
 
-    def __init__(self, store: Any, config: Any = None, *, now_fn=utcnow):
+    def __init__(self, store: Any, config: Any = None, *, now_fn=utcnow, world: Any = None):
         self.store = store
         self.config = config
         self.now_fn = now_fn
+        # The world tools (read the web, write in her workspace, run something in
+        # a network-less sandbox) are a second toolbox joined here, so the model
+        # sees one flat tool list while memory and world keep their own rules.
+        self.world = world
 
     def schemas(self) -> list[dict[str, Any]]:
-        return TOOL_SCHEMAS
+        extra = self.world.schemas() if self.world is not None else []
+        return TOOL_SCHEMAS + extra
+
+    def names(self) -> set[str]:
+        return {schema["function"]["name"] for schema in self.schemas()}
 
     def run(self, name: str, arguments: Any) -> dict[str, Any]:
         handlers: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
@@ -279,6 +287,8 @@ class MemoryToolbox:
         }
         handler = handlers.get(name)
         if handler is None:
+            if self.world is not None and name in self.world.names():
+                return self.world.run(name, arguments)
             return {"ok": False, "tool": name, "error": f"unknown tool: {name}"}
         try:
             args = self._args(arguments)

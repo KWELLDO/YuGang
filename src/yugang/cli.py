@@ -326,6 +326,40 @@ def cmd_probe(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_world(args: argparse.Namespace) -> int:
+    """她自己能看见什么、能动手做什么：哪些工具开着、沙箱在哪跑、今天动过几次。"""
+    from .world.sandbox import backend_available
+    from .world.tools import ACT_TOOLS, WorldToolbox
+    from .world.workspace import Workspace
+
+    cfg = load_config(args)
+    store = MemoryStore(cfg.db_path)
+    try:
+        if bool(getattr(args, "log", False)):
+            _print_json({"ok": True, "log": store.world_log(limit=int(args.limit))})
+            return 0
+        toolbox = WorldToolbox(cfg, store, now_fn=utcnow)
+        backend, detail = backend_available()
+        workspace = Workspace(getattr(cfg, "workspace", "~/.yugang/workspace"))
+        workspace.ensure()
+        names = sorted(toolbox.names())
+        _print_json(
+            {
+                "ok": True,
+                "enabled": bool(getattr(cfg.world, "enabled", False)),
+                "tools": names,
+                "act_tools": [name for name in names if name in ACT_TOOLS],
+                "sandbox": {"backend": backend, "detail": detail},
+                "workspace": {"root": str(workspace.root), "info": workspace.info()},
+                "today": store.world_summary(day_key(utcnow())),
+                "recent": store.world_log(limit=5),
+            }
+        )
+        return 0
+    finally:
+        store.close()
+
+
 def cmd_persona_check(args: argparse.Namespace) -> int:
     """只读检查：她的自我文件醒来时到底注入多少、哪里重复、哪里没日期、有没有凭据。"""
     cfg = load_config(args)
@@ -699,6 +733,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--announce", default="", help="同时往 L1 写一句她下次醒来会读到的话")
     p.add_argument("--list", action="store_true", help="列出已经记下的人")
     p.set_defaults(func=cmd_person)
+
+    p = sub.add_parser("world", help="她能看见什么、能动手做什么：工具开关、沙箱后端、今天的读写")
+    p.add_argument("--log", action="store_true", help="只列最近的世界调用（读与动分子）")
+    p.add_argument("--limit", type=int, default=20, help="--log 时列几条")
+    p.set_defaults(func=cmd_world)
 
     p = sub.add_parser("probe", help="从进程外体检：网关应答、记忆、磁盘、预算；--deep 真跑一次模型")
     p.add_argument("--deep", action="store_true", help="花一次极小的模型调用，验证凭据和网络还通")

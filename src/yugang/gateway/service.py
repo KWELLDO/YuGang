@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from ..audit import audit_memory, memory_health
 from ..ids import day_key, now_iso, parse_ts, utcnow
 from ..memory.tools import MemoryToolbox
+from ..world.tools import WorldToolbox
 from ..memory.trust import inbound_meta
 from ..protocol.sleep import SleepResult, apply_sleep_result, build_sleep_messages, parse_sleep_output
 from ..protocol.wake import build_messages, build_wake_context, morning_check_messages, record_wake
@@ -352,7 +353,12 @@ class GatewayService:
     def _toolbox(self) -> MemoryToolbox | None:
         if not bool(getattr(self.config, "memory_tools_enabled", True)):
             return None
-        return MemoryToolbox(self.store, self.config, now_fn=self.now_fn)
+        world = WorldToolbox(self.config, self.store, now_fn=self.now_fn)
+        return MemoryToolbox(self.store, self.config, now_fn=self.now_fn, world=world)
+
+    def _world_enabled(self) -> bool:
+        world = getattr(self.config, "world", None)
+        return bool(world is not None and getattr(world, "enabled", False))
 
     def _tool_overhead_cny(self) -> float:
         toolbox = self._toolbox()
@@ -406,7 +412,7 @@ class GatewayService:
                 return completion, trace
             if index >= rounds:
                 raise ToolRoundLimitExceeded(
-                    f"记忆工具调用超过 {rounds} 轮；停止继续调用，避免无界检索。"
+                    f"工具调用超过 {rounds} 轮；停止继续调用，避免无界检索和无界动作。"
                 )
             working.append(
                 {"role": "assistant", "content": completion.text or "", "tool_calls": calls}
@@ -476,6 +482,7 @@ class GatewayService:
             context,
             incoming.content,
             tools_enabled=bool(getattr(self.config, "memory_tools_enabled", True)),
+            world_enabled=self._world_enabled(),
         )
         # A second message in the same wake is a continuation of this
         # conversation, not a fresh retrieval. Keep the actual prior turns
@@ -832,6 +839,7 @@ class GatewayService:
             probe,
             reason=reason,
             tools_enabled=bool(getattr(self.config, "memory_tools_enabled", True)),
+            world_enabled=self._world_enabled(),
         )
         estimated = self.budget.estimate(
             probe_messages, int(getattr(self.config, "reply_max_tokens", 2000)), self.config.model
@@ -854,6 +862,7 @@ class GatewayService:
             context,
             reason=reason,
             tools_enabled=bool(getattr(self.config, "memory_tools_enabled", True)),
+            world_enabled=self._world_enabled(),
         )
         tool_trace: list[dict[str, Any]] = []
         try:
@@ -1115,9 +1124,32 @@ class GatewayService:
             "budget": _jsonable(summary),
             "budget_stage": self.budget.stage(now),
             "cache": self.budget.cache(now),
+            "world": self._world_status(now),
             "channels": [getattr(c, "name", type(c).__name__) for c in self.channels],
             "channel_health": self._channel_health(),
             "started_at": self.started_at,
+        }
+
+    def _world_status(self, now) -> dict[str, Any]:
+        """What she can reach right now, and what she did today.
+
+        Reads are cheap to undo; acts are not. The two are counted separately so
+        the tank page and the CLI can show the difference instead of one blended
+        number.
+        """
+        from ..ids import day_key
+        from ..world.sandbox import backend_available
+
+        toolbox = self._toolbox()
+        tools = sorted(toolbox.names()) if toolbox is not None else []
+        backend, detail = backend_available()
+        today = self.store.world_summary(day_key(now))
+        return {
+            "enabled": self._world_enabled(),
+            "tools": tools,
+            "act_tools": [name for name in tools if name in ("files_write", "sandbox_run")],
+            "sandbox": {"backend": backend, "detail": detail},
+            "today": today,
         }
 
     def audit(self) -> dict[str, Any]:
