@@ -89,3 +89,23 @@ def test_sync_refuses_to_copy_onto_itself(tmp_path: Path, live: Path) -> None:
     item = Mirror(live, source=live)
     with pytest.raises(Exception):
         item.sync()
+
+
+def test_sync_leaves_the_mirror_writable_for_her(tmp_path: Path, live: Path) -> None:
+    """live 是 0444；拷进镜像后如果还是 0444，下一次 sync 就会在它自己跟的文件上失败。"""
+    for path in live.rglob("*"):
+        if path.is_file():
+            path.chmod(0o444)
+    item = Mirror(tmp_path / "home" / "self", source=live)
+    item.sync()
+
+    (live / "docs" / "STATUS.md").chmod(0o644)
+    (live / "docs" / "STATUS.md").write_text("# status 2\n", encoding="utf-8")
+    result = item.sync()
+
+    assert result["ok"] is True
+    assert result["synced"] is True
+    assert (item.root / "docs" / "STATUS.md").read_text(encoding="utf-8") == "# status 2\n"
+    target = item.root / "docs" / "STATUS.md"
+    assert target.stat().st_mode & 0o200  # 她自己还得能写
+

@@ -530,8 +530,27 @@ class Mirror:
 
     # -- building ------------------------------------------------------
 
+    def _own_writable(self, root: Path) -> None:
+        """Make the tree writable by her.
+
+        live is 0444 for everyone (that is the whole point), and copying preserves
+        the mode — so after the first sync every mirror file is read-only, and the
+        next sync dies with PermissionError on the very files it was following.
+        """
+        for path in [root, *root.rglob("*")]:
+            try:
+                if path.is_symlink():
+                    continue
+                if path.is_dir():
+                    path.chmod(0o755)
+                elif path.is_file():
+                    path.chmod(0o644)
+            except OSError:  # pragma: no cover - 竞态或权限，读不到就算了
+                pass
+
     def _copy_includes(self, source: Path) -> int:
         root = self._root()
+        self._own_writable(root)
         copied = 0
         for name in self.includes:
             src = source / name
@@ -551,6 +570,7 @@ class Mirror:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dest)
                 copied += 1
+        self._own_writable(root)
         return copied
 
     def ensure(self) -> dict[str, Any]:
