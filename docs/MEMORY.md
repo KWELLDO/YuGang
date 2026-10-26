@@ -256,6 +256,37 @@ outside `TRUSTED_CHANNELS` (cli/http/console/test) or from a sender outside
 - The stored text is not rewritten. Marking is additive, and a trusted sender can be added
   to `config.trusted_senders` without touching history.
 
+## People: who, not what happened
+
+The untrusted mark is for strangers. Applied to the one person she lives with it turns every
+greeting into a security review: on 2026-10-26 the operator said 你好 over QQ and she answered
+as a mailroom — correctly, by the rules, because the rules only knew "message from a channel
+outside TRUSTED_CHANNELS" and her SELF.md never said who he was. The sender was an openid hash;
+the prompt called him 他这次说的.
+
+So "who" is stored separately from "what happened":
+
+- `people(id, name, relation, note, first_seen_ts, last_seen_ts, created_at)` and
+  `person_handles(channel, handle, person_id)`. L1 is what happened; these are who was there.
+  `last_seen_ts` moves, the events never do. `upsert_person` keeps `first_seen_ts` fixed when
+  the same name comes back.
+- `handle_incoming()` resolves the sender to a person **before** marking the event, and
+  `inbound_meta(..., person=...)` returns `{"person": <id>}` and no untrusted mark. An unknown
+  sender is still `{"untrusted": true, "origin": ...}` — the default did not move.
+- The wake prompt gained `## 谁在门外`: this is 「老大」, 不言弃的挚友, first spoke …, last seen …,
+  about him …, plus a list of the other people she knows. With no person, it says the alarm or
+  the daily check woke her and that no one is waiting.
+- `build_messages` uses `f"{speaker_name}说的"` as the turn heading when the sender is known.
+- `yugang person --name 老大 --relation 不言弃的挚友 --handle qq:<openid> --handle
+  email:<addr> --announce "<correction>"` bootstraps a person and writes the correction into L1
+  as a `human/note` (so it survives the system-row filter below and she reads it on the next
+  wake).
+- The same round made the wake prompt stop being a dashboard: L1 event ids, audit results,
+  backup integrity/age, channel list and "paused: no" no longer appear. `最近的 L1` drops
+  `source == "system"` rows (channel health, probe failures, signature rejects) — they stay in
+  L1 and remain reachable through tools, but they are not her life. Budget stays as one line
+  (今天还剩 ¥…), and a broken hash chain is still said out loud.
+
 ## Identity core (IDENTITY.md) and prompt budgets
 
 Two files, two jobs. `SELF.md` is the self she may revise; `IDENTITY.md` is the condition

@@ -55,12 +55,15 @@ def test_wake_context_reports_body_readings_without_claiming_experience(store, c
         },
     )
     assert "我的身体状态（系统读数，不是体验）" in context.prompt
-    assert "L1 记忆：157 条" in context.prompt
-    assert "已用 ¥0.79 / ¥5.00，剩余 ¥4.21" in context.prompt
-    assert "最近一次身体备份：2026-10-25T12:15:00+08:00" in context.prompt
-    assert "下一次自己设的醒来：2026-10-25T17:00:00+08:00（核对证据）" in context.prompt
-    assert "http、email" in context.prompt
-    assert "操作员暂停：否" in context.prompt
+    assert "今天还剩 ¥4.21（预算 ¥5.00，已用 ¥0.79）" in context.prompt
+    assert "你给自己设的下一次醒来：2026-10-25T17:00:00+08:00（核对证据）" in context.prompt
+    # Waking up is not a status report: the L1 count, the last backup and the
+    # channel list are one tool call away, and reading them aloud is what made her
+    # answer a greeting like a switchboard.
+    assert "L1 记忆：157 条" not in context.prompt
+    assert "最近一次身体备份" not in context.prompt
+    assert "http、email" not in context.prompt
+    assert "操作员暂停" not in context.prompt
 
 
 def test_wake_context_reports_memory_health(store, cfg):
@@ -86,12 +89,9 @@ def test_wake_context_reports_memory_health(store, cfg):
             },
         },
     )
-    assert "记忆体检：有问题" in context.prompt
-    assert "L1 链 ok" in context.prompt
-    assert "最近备份 3.2 小时前（150 条，integrity ok）" in context.prompt
-    assert "问题 1 条、提示 1 条" in context.prompt
-    assert "问题：L2 引用了不存在的证据" in context.prompt
-    assert "提示：3 组当前 L2 的措辞高度相似" in context.prompt
+    assert "记忆体检有 1 个问题；要查就用 memory_audit" in context.prompt
+    assert "最近备份 3.2 小时前" not in context.prompt
+    assert "L2 引用了不存在的证据" not in context.prompt
 
 
 def test_wake_context_says_when_memory_health_could_not_run(store, cfg):
@@ -111,8 +111,8 @@ def test_wake_context_says_when_memory_health_could_not_run(store, cfg):
             },
         },
     )
-    assert "记忆体检：无法完成" in context.prompt
-    assert "只等于这次没查成" in context.prompt
+    assert "记忆体检没做成（OperationalError: database is locked）" in context.prompt
+    assert "这等于这次没查，不等于没问题" in context.prompt
 
 
 def test_wake_context_shows_evidence_ids_for_l2_and_cards(store, cfg):

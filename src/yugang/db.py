@@ -256,6 +256,27 @@ CREATE TABLE IF NOT EXISTS redactions (
   replacement TEXT
 );
 
+-- People she knows, and the handles they can reach her from. Not L1: L1 is what
+-- happened, this is who was there. last_seen moves; the events never do.
+CREATE TABLE IF NOT EXISTS people (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  relation TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  first_seen_ts TEXT NOT NULL,
+  last_seen_ts TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_people_name ON people(name);
+CREATE TABLE IF NOT EXISTS person_handles (
+  channel TEXT NOT NULL,
+  handle TEXT NOT NULL,
+  person_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (channel, handle)
+);
+CREATE INDEX IF NOT EXISTS idx_person_handles_person ON person_handles(person_id);
+
 CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events
 BEGIN SELECT RAISE(ABORT, 'events is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events

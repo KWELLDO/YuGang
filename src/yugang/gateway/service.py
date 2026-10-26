@@ -229,12 +229,17 @@ class GatewayService:
     def handle_incoming(self, incoming: IncomingMessage) -> Any:
         # Mark the origin while it is still known. Every channel funnels through
         # here, so this is the one place that cannot be forgotten.
+        person = self.store.person_for(incoming.channel, incoming.sender) if incoming.sender else None
+        incoming.person = person
+        if person is not None:
+            self.store.touch_person(person.id)
         incoming.meta = {
             **(incoming.meta or {}),
             **inbound_meta(
                 incoming.channel,
                 incoming.sender,
                 trusted_senders=getattr(self.config, "trusted_senders", ()),
+                person=person,
             ),
         }
         message, event = self.store.receive_message(
@@ -452,6 +457,7 @@ class GatewayService:
                 new_wake=True,
                 body=self._body_state(now),
                 channel=incoming.channel,
+                person=incoming.person,
             )
         else:
             context = build_wake_context(
@@ -463,6 +469,7 @@ class GatewayService:
                 new_wake=False,
                 body=self._body_state(now),
                 channel=incoming.channel,
+                person=incoming.person,
             )
             self.window.touch(now)
         messages = build_messages(

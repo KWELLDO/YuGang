@@ -25,6 +25,7 @@ from .models import (
     JudgmentReview,
     Message,
     OpenLoop,
+    Person,
     Practice,
     PracticeReview,
     RecallHit,
@@ -1574,6 +1575,105 @@ class MemoryStore:
             meta = {}
         meta.update(patch)
         self.conn.execute("UPDATE messages SET meta = ? WHERE id = ?", (json.dumps(meta, ensure_ascii=False), message_id))
+
+    # ------------------------------------------------------------------ people
+    def get_person(self, person_id: str) -> Person | None:
+        row = self.conn.execute("SELECT * FROM people WHERE id = ?", (person_id,)).fetchone()
+        return self._person(row)
+
+    def _person(self, row: Any) -> Person | None:
+        if row is None:
+            return None
+        handles = tuple(
+            (r["channel"], r["handle"])
+            for r in self.conn.execute(
+                "SELECT channel, handle FROM person_handles WHERE person_id = ? ORDER BY channel, handle",
+                (row["id"],),
+            ).fetchall()
+        )
+        return Person(
+            id=row["id"],
+            name=row["name"],
+            relation=row["relation"],
+            note=row["note"],
+            first_seen_ts=row["first_seen_ts"],
+            last_seen_ts=row["last_seen_ts"],
+            handles=handles,
+        )
+
+    def upsert_person(
+        self,
+        name: str,
+        *,
+        relation: str = "",
+        note: str = "",
+        ts: str | None = None,
+    ) -> Person:
+        """Create a person, or update what she knows about an existing one.
+
+        Updating is deliberate: this table is her map of who exists, and a map that
+        can only grow cannot be corrected. What happened stays in L1.
+        """
+        clean = (name or "").strip()
+        if not clean:
+            raise ValueError("person name is required")
+        stamp = ts or now_iso()
+        row = self.conn.execute("SELECT * FROM people WHERE name = ?", (clean,)).fetchone()
+        if row is None:
+            person_id = new_id("person")
+            self.conn.execute(
+                "INSERT INTO people (id, name, relation, note, first_seen_ts, last_seen_ts, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (person_id, clean, relation or "", note or "", stamp, stamp, stamp),
+            )
+        else:
+            person_id = row["id"]
+            self.conn.execute(
+                "UPDATE people SET relation = ?, note = ?, last_seen_ts = ? WHERE id = ?",
+                (relation or row["relation"], note or row["note"], stamp, person_id),
+            )
+        return self.get_person(person_id)
+
+    def link_handle(self, person_id: str, channel: str, handle: str, *, ts: str | None = None) -> None:
+        """Attach a reachable id (QQ openid, mailbox) to a person.
+
+        Handles are matched case-insensitively: an openid that arrives uppercase and
+        an allowlist entry typed lowercase must be the same person, not two.
+        """
+        name = (channel or "").strip().lower()
+        value = str(handle or "").strip().lower()
+        if not name or not value:
+            raise ValueError("channel and handle are required")
+        self.conn.execute(
+            "INSERT INTO person_handles (channel, handle, person_id, created_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(channel, handle) DO UPDATE SET person_id = excluded.person_id",
+            (name, value, person_id, ts or now_iso()),
+        )
+
+    def person_for(self, channel: str | None, handle: str | None) -> Person | None:
+        if not handle:
+            return None
+        row = self.conn.execute(
+            "SELECT person_id FROM person_handles WHERE channel = ? AND handle = ?",
+            ((channel or "").strip().lower(), str(handle).strip().lower()),
+        ).fetchone()
+        return self.get_person(row["person_id"]) if row else None
+
+    def person_by_name(self, name: str) -> Person | None:
+        row = self.conn.execute("SELECT * FROM people WHERE name = ?", ((name or "").strip(),)).fetchone()
+        return self._person(row)
+
+    def people(self, limit: int = 20) -> list[Person]:
+        rows = self.conn.execute(
+            "SELECT * FROM people ORDER BY last_seen_ts DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [p for p in (self._person(r) for r in rows) if p is not None]
+
+    def touch_person(self, person_id: str, *, ts: str | None = None) -> None:
+        """Remember when they were last here. first_seen_ts never moves."""
+        self.conn.execute(
+            "UPDATE people SET last_seen_ts = ? WHERE id = ?", (ts or now_iso(), person_id)
+        )
 
     def pending_messages(self, limit: int = 20) -> list[Message]:
         rows = self.conn.execute(

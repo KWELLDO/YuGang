@@ -16,6 +16,9 @@ class IncomingMessage:
     reply_timeout: float = 120.0
     message_id: str | None = None
     event_id: str | None = None
+    # Resolved at intake when the sender is someone she knows. Channels never set
+    # this; the gateway does, in one place, so a new channel cannot forget it.
+    person: Any | None = None
     reply: str | None = None
     error: str | None = None
     _done: threading.Event = field(default_factory=threading.Event, repr=False)

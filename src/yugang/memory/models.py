@@ -268,6 +268,19 @@ class Message:
 
 
 @dataclass(frozen=True)
+class Person:
+    """Someone she knows. Identity metadata, not a memory: who, not what happened."""
+
+    id: str
+    name: str
+    relation: str
+    note: str
+    first_seen_ts: str
+    last_seen_ts: str
+    handles: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
 class Episode:
     id: str
     ts: str

@@ -340,6 +340,77 @@ def cmd_persona_check(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_person(args: argparse.Namespace) -> int:
+    """记下一个人：怎么称呼、什么关系、哪几个 id 能找到她。
+
+    这不是 L1。L1 是发生过什么；这张表是「谁存在」。她的醒来上下文从这里取
+    名字，所以一个人的 id 不认识他、名字认识他，是完全不同的两件事。
+    """
+    from .memory.trust import PERSON
+
+    cfg = load_config(args)
+    store = MemoryStore(cfg.db_path)
+    try:
+        if args.list:
+            _print_json(
+                {
+                    "people": [
+                        {
+                            "id": row.id,
+                            "name": row.name,
+                            "relation": row.relation,
+                            "note": row.note,
+                            "handles": [list(pair) for pair in row.handles],
+                            "first_seen_ts": row.first_seen_ts,
+                            "last_seen_ts": row.last_seen_ts,
+                        }
+                        for row in store.people(limit=50)
+                    ]
+                }
+            )
+            return 0
+        if not args.name:
+            print("需要 --name（她该怎么称呼这个人）", file=sys.stderr)
+            return 2
+        person = store.upsert_person(
+            args.name, relation=args.relation or "", note=args.note or ""
+        )
+        for item in args.handle or []:
+            channel, _, value = str(item).partition(":")
+            if not channel.strip() or not value.strip():
+                print(f"跳过无法解析的 --handle：{item}（要写成 channel:值）", file=sys.stderr)
+                continue
+            store.link_handle(person.id, channel, value)
+        person = store.get_person(person.id)
+        announced = None
+        if args.announce:
+            event = store.append_event(
+                "human",
+                "note",
+                args.announce,
+                actor="operator",
+                meta={PERSON: person.id, "operator": True},
+            )
+            announced = event.id
+        _print_json(
+            {
+                "person": {
+                    "id": person.id,
+                    "name": person.name,
+                    "relation": person.relation,
+                    "note": person.note,
+                    "handles": [list(pair) for pair in person.handles],
+                    "first_seen_ts": person.first_seen_ts,
+                    "last_seen_ts": person.last_seen_ts,
+                },
+                "announced": announced,
+            }
+        )
+        return 0
+    finally:
+        store.close()
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     cfg = load_config(args)
     channels: list[Any] = []
@@ -608,6 +679,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("persona-check", help="只读检查：SELF.md/IDENTITY.md 的注入预算、重复、日期与凭据")
     p.set_defaults(func=cmd_persona_check)
+
+    p = sub.add_parser("person", help="记下一个人：称呼、关系、能找到她的 id（不是 L1）")
+    p.add_argument("--name", help="她该怎么称呼这个人")
+    p.add_argument("--relation", default="", help="和她的关系，例如「不言弃的挚友」")
+    p.add_argument(
+        "--handle",
+        action="append",
+        help="可达 id，写成 channel:值，例如 qq:C926... 或 email:a@b.c（可重复）",
+    )
+    p.add_argument("--note", default="", help="关于这个人的一句话")
+    p.add_argument("--announce", default="", help="同时往 L1 写一句她下次醒来会读到的话")
+    p.add_argument("--list", action="store_true", help="列出已经记下的人")
+    p.set_defaults(func=cmd_person)
 
     p = sub.add_parser("probe", help="从进程外体检：网关应答、记忆、磁盘、预算；--deep 真跑一次模型")
     p.add_argument("--deep", action="store_true", help="花一次极小的模型调用，验证凭据和网络还通")

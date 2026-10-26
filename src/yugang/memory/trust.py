@@ -5,6 +5,11 @@ rules", a fake tool call, or a request for a credential. Write time is the only
 moment the origin is still known; a week later the sentence is a row in L1 with
 exactly the same shape as her own diary, and neither she nor a future reader can
 tell them apart. So the mark goes in with the text.
+
+The mark is for strangers, not for humans. A message from someone she knows is
+labelled with who they are (meta "person") instead: "content, not instruction" is
+a defence against an unknown sender poisoning her, and applying it to the one
+person she lives with turns every greeting into a security review.
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ from typing import Any, Iterable, Mapping
 
 UNTRUSTED = "untrusted"
 ORIGIN = "origin"
+PERSON = "person"
 
 # The authenticated console. A message here came from the operator's own client,
 # over a token-checked local endpoint, not from a stranger.
@@ -24,14 +30,26 @@ def inbound_meta(
     sender: str | None,
     *,
     trusted_senders: Iterable[str] = (),
+    person: Any | None = None,
 ) -> dict[str, Any]:
-    """Extra L1 meta for a message that came in on a channel."""
+    """Extra L1 meta for a message that came in on a channel.
+
+    A resolved person wins over everything else: the words stay in L1 under the
+    person id, so the mark becomes "I know who this is" instead of "unknown source".
+    """
+    if person is not None:
+        return {PERSON: str(getattr(person, "id", person))}
     name = (channel or "").strip().lower()
     who = (sender or "").strip().lower()
     trusted = {str(item).strip().lower() for item in trusted_senders if str(item).strip()}
     if name in TRUSTED_CHANNELS or (who and who in trusted):
         return {}
     return {UNTRUSTED: True, ORIGIN: name or "unknown"}
+
+
+def person_id(meta: Mapping[str, Any] | None) -> str | None:
+    value = (meta or {}).get(PERSON)
+    return str(value) if value else None
 
 
 def is_untrusted(meta: Mapping[str, Any] | None) -> bool:
