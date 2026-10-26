@@ -42,6 +42,28 @@ def _header(headers: Any, name: str) -> str:
         return ""
 
 
+def _error_detail(exc: BaseException, *, limit: int = 300) -> str:
+    """What the platform actually said, not just "HTTP Error 400".
+
+    The status line alone cost an hour: every bubble after the first was
+    rejected for reusing `msg_seq`, and the body that says so was never read.
+    """
+    body = ""
+    read = getattr(exc, "read", None)
+    if callable(read):
+        try:
+            raw = read()
+            body = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
+        except Exception:  # noqa: BLE001 - the body is best effort
+            body = ""
+    body = " ".join(body.split())
+    if len(body) > limit:
+        body = body[:limit] + "…"
+    code = getattr(exc, "code", None)
+    head = f"HTTP {code}" if code else type(exc).__name__
+    return f"{head}: {body}" if body else head
+
+
 _BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
 _ITALIC = re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
 _HEADING = re.compile(r"(?m)^[ \t]{0,3}#{1,6}[ \t]*")
@@ -450,7 +472,7 @@ class QQOfficialChannel:
                 with urlrequest.urlopen(request, timeout=self.request_timeout_seconds) as response:
                     data = json.loads(response.read().decode("utf-8") or "{}")
             except Exception as exc:  # noqa: BLE001
-                self.last_error = f"取 access_token 失败：{type(exc).__name__}: {exc}"
+                self.last_error = f"取 access_token 失败：{_error_detail(exc)}"
                 return None
             token = str(data.get("access_token") or "")
             if not token:
@@ -486,6 +508,11 @@ class QQOfficialChannel:
                 # Passive replies reference the inbound message; the platform
                 # counts a reply without msg_id as a proactive message.
                 payload["msg_id"] = msg_id
+                # One inbound message may be answered up to four times, and the
+                # platform tells those replies apart by (msg_id, msg_seq).
+                # Without a seq every bubble defaults to 1, so the second one is
+                # rejected as a duplicate and only her opening line arrives.
+                payload["msg_seq"] = index + 1
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             request = urlrequest.Request(
                 f"{self.api_base}/v2/users/{openid}/messages",
@@ -497,7 +524,8 @@ class QQOfficialChannel:
                 with urlrequest.urlopen(request, timeout=self.request_timeout_seconds) as response:
                     response.read()
             except Exception as exc:  # noqa: BLE001
-                self.last_error = f"发送失败：{type(exc).__name__}: {exc}"
+                self.last_error = f"发送失败：{_error_detail(exc)}"
                 ok = False
-                break
+                # Keep going: every bubble carries its own msg_seq, so one lost
+                # paragraph should not swallow the rest of what she said.
         return ok

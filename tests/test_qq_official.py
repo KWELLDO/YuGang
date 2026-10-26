@@ -365,6 +365,10 @@ def test_a_reply_written_in_paragraphs_arrives_as_separate_messages(tmp_path, mo
         # Three thoughts, three bubbles, with a beat between them and none before
         # the first - a pause before the opener is just latency.
         assert len(_no_waiting) == 2
+        # The platform tells replies to one message apart by (msg_id, msg_seq).
+        # Left unset every bubble is seq 1, so the second one is rejected as a
+        # duplicate and only the opening line reaches him.
+        assert [call["payload"]["msg_seq"] for call in sends] == [1, 2, 3]
     finally:
         store.close()
         server.shutdown()
@@ -381,6 +385,46 @@ def test_a_burst_of_paragraphs_is_folded_into_three_bubbles(tmp_path, monkeypatc
         sends = [call for call in _FakeQQAPI.calls if call["path"].startswith("/v2/users/")]
         assert len(sends) == 3
         assert sends[-1]["payload"]["content"].count("\n\n") == 3
+        # Four is the platform ceiling per inbound message; three is ours.
+        assert [call["payload"]["msg_seq"] for call in sends] == [1, 2, 3]
+    finally:
+        store.close()
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_rejected_send_keeps_what_the_platform_actually_said(tmp_path, monkeypatch, _no_waiting):
+    class _Reject(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args) -> None:
+            return
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(length)
+            if self.path.endswith("/getAppAccessToken"):
+                data = json.dumps({"access_token": "tok-1", "expires_in": "7200"}).encode("utf-8")
+                self.send_response(200)
+            else:
+                data = json.dumps({"code": 40054005, "message": "msg_seq 重复"}).encode("utf-8")
+                self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Reject)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    api_base = f"http://127.0.0.1:{server.server_address[1]}"
+    channel, store = _channel(tmp_path, monkeypatch, allowed=[OPENID], api_base=api_base)
+    channel.token_url = f"{api_base}/getAppAccessToken"
+    try:
+        assert channel.send(OPENID, "在吗", meta={"msg_id": "EVT-1"}) is False
+        # "HTTP Error 400: Bad Request" is where the last investigation stalled:
+        # the platform's own error code was sitting in the body, unread.
+        assert "400" in channel.last_error
+        assert "40054005" in channel.last_error
+        assert "msg_seq" in channel.last_error
     finally:
         store.close()
         server.shutdown()
