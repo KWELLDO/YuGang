@@ -185,12 +185,19 @@ def test_fails_closed_without_a_backend(
 
 @needs_unshare
 def test_unshare_fallback_isolates_the_network(tmp_path: Path) -> None:
-    result = sandbox.run(
-        NETWORK_PROBE,
-        workdir=tmp_path,
-        backend="unshare",
-        limits=sandbox.SandboxLimits(timeout_seconds=10),
-    )
+    try:
+        result = sandbox.run(
+            NETWORK_PROBE,
+            workdir=tmp_path,
+            backend="unshare",
+            limits=sandbox.SandboxLimits(timeout_seconds=10),
+        )
+    except sandbox.SandboxUnavailable as exc:
+        # GitHub runners ship unshare but forbid writing /proc/self/uid_map, so
+        # the fallback cannot isolate anything there. That is the fail-closed
+        # path, not a regression: skip instead of demanding the runner become
+        # privileged.
+        pytest.skip(f"unshare cannot unshare a user namespace here: {exc}")
     assert result.backend == "unshare"
     assert result.ok is False
     assert result.exit_code not in (0, None)
