@@ -238,3 +238,31 @@ def test_the_person_command_lists_what_she_already_knows(cfg, capsys):
     assert main(["--home", str(cfg.home), "person", "--list"]) == 0
     out = capsys.readouterr().out
     assert "老大" in out
+
+def test_the_person_command_can_say_when_they_actually_first_spoke(cfg, capsys):
+    """Bootstrapping a person happens days after the first message; the prompt says
+    "你们第一次说话", so the recorded time must be the conversation, not the typing."""
+    code = main(
+        [
+            "--home",
+            str(cfg.home),
+            "person",
+            "--name",
+            "老大",
+            "--relation",
+            "不言弃的挚友",
+            "--handle",
+            f"qq:{OPENID}",
+            "--first-seen",
+            "2026-10-25T23:56:00+00:00",
+        ]
+    )
+    assert code == 0
+    store = MemoryStore(cfg.db_path)
+    try:
+        person = store.person_by_name("老大")
+        assert person.first_seen_ts == "2026-10-25T23:56:00+00:00"
+        context = build_wake_context(store, cfg, query="", person=person)
+        assert "2026-10-26T07:56:00+08:00" in context.prompt
+    finally:
+        store.close()

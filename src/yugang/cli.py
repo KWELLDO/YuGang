@@ -381,6 +381,8 @@ def cmd_person(args: argparse.Namespace) -> int:
                 print(f"跳过无法解析的 --handle：{item}（要写成 channel:值）", file=sys.stderr)
                 continue
             store.link_handle(person.id, channel, value)
+        if args.first_seen:
+            store.set_first_seen(person.id, args.first_seen)
         person = store.get_person(person.id)
         announced = None
         if args.announce:
@@ -689,6 +691,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="可达 id，写成 channel:值，例如 qq:C926... 或 email:a@b.c（可重复）",
     )
     p.add_argument("--note", default="", help="关于这个人的一句话")
+    p.add_argument(
+        "--first-seen",
+        default="",
+        help="这个人第一次说话的真实时间（ISO 8601）；补记一个人时用，否则醒来会说成今天才认识",
+    )
     p.add_argument("--announce", default="", help="同时往 L1 写一句她下次醒来会读到的话")
     p.add_argument("--list", action="store_true", help="列出已经记下的人")
     p.set_defaults(func=cmd_person)

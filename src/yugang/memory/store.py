@@ -1634,6 +1634,17 @@ class MemoryStore:
             )
         return self.get_person(person_id)
 
+    def set_first_seen(self, person_id: str, ts: str) -> None:
+        """Backfill when this person actually first spoke.
+
+        Bootstrapping a person days after the first message (which is the normal
+        case: the openid is only known once a message arrives) would otherwise
+        make her wake prompt claim they first spoke this morning. The wake prompt
+        says "你们第一次说话" — so this value has to be the conversation, not the
+        operator's typing time.
+        """
+        self.conn.execute("UPDATE people SET first_seen_ts = ? WHERE id = ?", (ts, person_id))
+
     def link_handle(self, person_id: str, channel: str, handle: str, *, ts: str | None = None) -> None:
         """Attach a reachable id (QQ openid, mailbox) to a person.
 
