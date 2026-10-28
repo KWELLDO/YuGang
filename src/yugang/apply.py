@@ -47,6 +47,7 @@ __all__ = [
     "SystemOps",
     "SystemdOps",
     "apply_proposal",
+    "health_url_for",
     "load_proposal",
     "recompute_tier",
     "write_result",
@@ -54,6 +55,7 @@ __all__ = [
 
 UNIT_NAME = "yugang.service"
 HEALTH_URL = "http://127.0.0.1:3198/health"
+DEFAULT_HTTP_PORT = 3198
 ENV_FILE = Path("/etc/dafeiyu-dsh.env")
 TOKEN_KEY = "YUGANG_HTTP_TOKEN"
 
@@ -233,6 +235,29 @@ def write_result(results_dir: Path, result: ApplyResult) -> Path:
     return target
 
 
+def health_url_for(home: Path) -> str:
+    """The /health URL of the port the service is really configured for.
+
+    The listening port comes from her config.json (http.port) and only falls back
+    to 3198. Probing a fixed 3198 meant that the day the operator moved the port,
+    every合入 would have looked like "服务起来了，但体检没过" and been rolled back.
+    """
+    port = DEFAULT_HTTP_PORT
+    try:
+        raw = (Path(home).expanduser() / "config.json").read_text(encoding="utf-8")
+        data = json.loads(raw)
+        value = (data.get("http") or {}).get("port")
+        if isinstance(value, bool):
+            value = None
+        if isinstance(value, int) and 0 < value < 65536:
+            port = int(value)
+        elif isinstance(value, str) and value.strip().isdigit():
+            port = int(value.strip())
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    return f"http://127.0.0.1:{port}/health"
+
+
 def apply_proposal(
     *,
     home: Path,
@@ -264,7 +289,7 @@ def apply_proposal(
     )
     rollback_dir = Path(rollback_dir).expanduser()
     candidates_dir = Path(candidates_dir).expanduser()
-    system: SystemOps = ops if ops is not None else SystemdOps()
+    system: SystemOps = ops if ops is not None else SystemdOps(health_url=health_url_for(home))
     runner = sandbox_run if sandbox_run is not None else _default_sandbox_run
 
     env = _empty_env()
