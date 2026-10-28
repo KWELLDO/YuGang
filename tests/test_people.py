@@ -279,3 +279,20 @@ def test_the_person_command_can_say_when_they_actually_first_spoke(cfg, capsys):
         assert "2026-10-26T07:56:00+08:00" in context.prompt
     finally:
         store.close()
+
+def test_a_pending_message_still_names_who_it_is_from_when_self_md_overflows(store, cfg):
+    """她 2026-10-28 醒不来：SELF.md 有一节超预算时，代码把浮出的节名存进
+    也叫做 names 的变量，后面给留言找人名就变成了对字符串调 .get()，worker 线程整个死掉。"""
+    boss = _boss(store)
+    long_section = "我这段时间一直在想一件很具体的事。" * 120
+    text = "# SELF.md — 大肥鱼\n\n## 我是谁\n\n" + long_section + "\n\n## 我相信什么\n\n- 2026-10-01 我相信证据。\n"
+    event = store.append_event("system", "note", "测试用自我材料")
+    store.commit_self(text, "测试提交", [event.id])
+    store.receive_message("qq", "在吗", sender=OPENID, meta={PERSON: boss.id})
+
+    context = build_wake_context(store, cfg, query="")
+
+    assert "这一次没有完整进入上下文" in context.prompt
+    assert "## 还没处理的留言" in context.prompt
+    assert "「老大」" in context.prompt or "老大：" in context.prompt
+

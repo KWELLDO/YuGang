@@ -520,9 +520,11 @@ def build_wake_context(
     lines.append("## SELF.md（当前版本）")
     lines.append(self_prompt or "（还没有 SELF.md；只有一个空的身体。）")
     if self_overflows:
-        names = "、".join(f"「{item.heading}」" for item in self_overflows)
+        # Never call this "names": the people map above is also called names, and
+        # shadowing it made the pending-message block below ask a str for .get().
+        overflow_headings = "、".join(f"「{item.heading}」" for item in self_overflows)
         lines.append(
-            f"（{names} 这一次没有完整进入上下文，上面标明了被截断的字数。"
+            f"（{overflow_headings} 这一次没有完整进入上下文，上面标明了被截断的字数。"
             "那不是我没有那部分，是这次没读到；不要把那部分当成不存在。）"
         )
     lines.append("")
