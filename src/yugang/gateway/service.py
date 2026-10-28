@@ -1327,7 +1327,26 @@ class GatewayService:
         else:
             text = f"我的改动没过：在 {stage} 这一步失败。{error}。这次没有动到 live，也没有回退。"
             meta = {"proposal": proposal, "stage": stage, "rolled_back": False, "tier": payload.get("tier")}
+        self._append_apply_result(text, meta)
+
+    def _append_apply_result(self, text: str, meta: dict[str, Any]) -> bool:
+        """Write one apply result into L1 — but never the same one twice.
+
+        The applier writes a result file every time it runs, so a proposal that
+        keeps failing at the same step produces the same sentence again and
+        again. That happened: a timer re-ran an already-applied proposal for two
+        days and put 347 identical "verify 这一步失败" lines into L1, which pushed
+        everything else out of the recent-memory block she reads on waking. The
+        repetition adds nothing she can act on; the first one already says it.
+        """
+        proposal = str(meta.get("proposal") or "")
+        for event in self.store.events(limit=200, order="desc"):
+            if event.content != text:
+                continue
+            if str((event.meta or {}).get("proposal") or "") == proposal:
+                return False
         self.store.append_event("ai-observation", "action", text, meta=meta)
+        return True
 
     def audit(self) -> dict[str, Any]:
         """Run the read-only memory audit. Never repairs anything."""

@@ -122,3 +122,26 @@ def test_the_source_rule_only_appears_when_the_lane_is_on(cfg, store):
     assert not any(marker in message["content"] for message in off)
     assert any(marker in message["content"] for message in on)
     assert SOURCE_RULE.strip()[:20] in "".join(message["content"] for message in on)
+
+def test_the_same_failure_arriving_again_is_said_only_once(cfg, store):
+    """合入器每跑一次都写一份结果；同一份失败重复回来，L1 里只该有一句。"""
+    service, now = _service(cfg, store)
+    results = Path(cfg.home) / "apply-results"
+    results.mkdir(parents=True)
+    payload = {
+        "id": "prop_20261026T115538_5de5ce",
+        "ok": False,
+        "stage": "verify",
+        "rolled_back": False,
+        "error": "git apply --check 失败（退出码 1）：docs/NOTES.md: already exists in working directory",
+        "env": {"base_commit": "fc708ae", "commit": "e4bea08"},
+        "ts": now.isoformat(),
+    }
+    for _ in range(3):
+        (results / "prop_20261026T115538_5de5ce.json").write_text(json.dumps(payload), encoding="utf-8")
+        service._ingest_apply_results()
+
+    events = _actions(store)
+    assert len(events) == 1
+    assert "verify" in events[0].content
+
