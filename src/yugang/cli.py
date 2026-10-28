@@ -398,7 +398,7 @@ def cmd_source(args: argparse.Namespace) -> int:
     try:
         for meta_path in sorted(Path(paths.proposals_dir).glob("*/meta.json"))[-10:]:
             meta = _json.loads(meta_path.read_text(encoding="utf-8"))
-            done = (Path(paths.results_dir) / f"{meta.get('id')}.json").exists()
+            done = bool(_result_files(paths.results_dir, str(meta.get("id") or "")))
             proposals.append(
                 {
                     "id": meta.get("id"),
@@ -434,6 +434,51 @@ def cmd_source(args: argparse.Namespace) -> int:
     return 0
 
 
+def _result_files(results_dir: Any, proposal_id: str) -> list[Any]:
+    """Every on-disk form of "this proposal has already been合入/试过".
+
+    The service renames a result it has read to `.json.done` (and `.bad` for an
+    unreadable one). Looking only at `.json` made an already-applied proposal look
+    pending forever, so the ten-minute timer kept re-running it.
+    """
+    from pathlib import Path as _Path
+
+    folder = _Path(results_dir)
+    return [
+        path
+        for path in (
+            folder / f"{proposal_id}.json",
+            folder / f"{proposal_id}.json.done",
+            folder / f"{proposal_id}.json.bad",
+        )
+        if path.exists()
+    ]
+
+
+def _pending_auto_proposals(paths: Any) -> list[str]:
+    """Auto-tier proposals the applier has never run.
+
+    "Never run" has to include the results the service already read and renamed
+    to `.json.done`: those are the successes, and treating them as pending made
+    the timer re-apply an applied patch every ten minutes.
+    """
+    from pathlib import Path as _Path
+
+    pending: list[str] = []
+    for meta_path in sorted(_Path(paths.proposals_dir).glob("*/meta.json")):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - 一份读不懂的元数据不该拖住别的
+            continue
+        pid = str(meta.get("id") or "")
+        if not pid or meta.get("tier") != "auto":
+            continue
+        if _result_files(paths.results_dir, pid):
+            continue
+        pending.append(pid)
+    return pending
+
+
 def cmd_apply(args: argparse.Namespace) -> int:
     """root 侧唯一合入通道：验证、测试、快照、换装、重启、体检，失败自动回退。"""
     import json as _json
@@ -454,17 +499,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
     if getattr(args, "id", None):
         wanted.append(str(args.id))
     if bool(getattr(args, "auto", False)):
-        for meta_path in sorted(Path(paths.proposals_dir).glob("*/meta.json")):
-            try:
-                meta = _json.loads(meta_path.read_text(encoding="utf-8"))
-            except Exception:  # noqa: BLE001
-                continue
-            pid = str(meta.get("id") or "")
-            if not pid or meta.get("tier") != "auto":
-                continue
-            if (Path(paths.results_dir) / f"{pid}.json").exists():
-                continue
-            wanted.append(pid)
+        wanted.extend(_pending_auto_proposals(paths))
     if not wanted:
         if bool(getattr(args, "auto", False)) and not getattr(args, "id", None):
             # The timer runs this every ten minutes; "nothing to do" is success.
