@@ -64,9 +64,43 @@ def test_chat_can_look_up_an_old_event_and_the_reply_records_the_tool(env):
         service.stop()
 
 
-def test_tool_round_limit_fails_loud_instead_of_looping(env):
+def test_hitting_the_tool_ceiling_still_ends_in_an_answer(env):
+    """到顶是「不许再查」，不是「不许说话」。
+
+    2026-10-26 12:39 老大问「你的机制是每次运行都要读一遍 self 吗」，她连查三轮目录，
+    第四轮撞上限，整轮被判失败——他收到的是一条系统错误，而她要用的东西已经查到了。
+    """
     cfg, store = env
     cfg.max_tool_rounds = 1
+    runtime = MockRuntime(
+        replies=["我看过了：每次运行都读 SELF.md，再读最近的事件。"],
+        tool_rounds=[
+            [call("recent_events", {"limit": 2}, "call_a")],
+            [call("recent_events", {"limit": 2}, "call_b")],
+        ],
+    )
+    service = _service(cfg, store, runtime)
+    try:
+        reply = service.chat("你的机制是每次运行都要读一遍 self 吗", timeout=15)
+        assert reply == "我看过了：每次运行都读 SELF.md，再读最近的事件。"
+        # 三轮：查一次、再想查一次、最后一轮不给工具只让它说话。
+        assert len(runtime.calls) == 3
+        assert runtime.calls[-1]["tool_count"] == 0
+        assert any(
+            m.get("role") == "system" and "工具轮数到顶" in str(m.get("content"))
+            for m in runtime.calls[-1]["messages"]
+        )
+        assert not [m for m in store.pending_messages() if m.status == "failed"]
+        reply_event = next(e for e in store.events(limit=30) if e.kind == "reply")
+        assert reply_event.meta["tools"][-1]["note"] == "tool_round_limit"
+    finally:
+        service.stop()
+
+
+def test_a_provider_that_calls_tools_when_none_were_offered_still_fails_loud(env):
+    """最后一轮没有工具可选，它还要调用，那就不能假装查过了。"""
+    cfg, store = env
+    cfg.max_tool_rounds = 0
     runtime = MockRuntime(
         replies=["不应该到这里"],
         tool_rounds=[
@@ -78,8 +112,7 @@ def test_tool_round_limit_fails_loud_instead_of_looping(env):
     try:
         reply = service.chat("一直查下去", timeout=15)
         assert reply is not None
-        assert "工具调用超过 1 轮" in reply
-        assert len(runtime.calls) == 2
+        assert "工具调用超过 0 轮" in reply
         failed = [m for m in store.pending_messages() if m.status == "failed"]
         assert failed
         errors = [e for e in store.events(limit=30) if e.kind == "error"]

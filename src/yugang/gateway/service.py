@@ -437,7 +437,7 @@ class GatewayService:
             return self.runtime.complete(messages, max_tokens=max_tokens, purpose=purpose), []
         schemas = toolbox.schemas()
         overhead = self._tool_overhead_cny()
-        rounds = max(0, int(getattr(self.config, "max_tool_rounds", 3)))
+        rounds = max(0, int(getattr(self.config, "max_tool_rounds", 6)))
         working = list(messages)
         trace: list[dict[str, Any]] = []
         for index in range(rounds + 1):
@@ -458,8 +458,14 @@ class GatewayService:
             if not calls:
                 return completion, trace
             if index >= rounds:
-                raise ToolRoundLimitExceeded(
-                    f"工具调用超过 {rounds} 轮；停止继续调用，避免无界检索和无界动作。"
+                return self._answer_at_the_ceiling(
+                    working,
+                    max_tokens=max_tokens,
+                    kind=kind,
+                    user_facing=user_facing,
+                    purpose=purpose,
+                    rounds=rounds,
+                    trace=trace,
                 )
             working.append(
                 {"role": "assistant", "content": completion.text or "", "tool_calls": calls}
@@ -481,9 +487,60 @@ class GatewayService:
                         "content": json.dumps(result, ensure_ascii=False),
                     }
                 )
-        raise ToolRoundLimitExceeded(
-            f"记忆工具调用超过 {rounds} 轮；停止继续调用，避免无界检索。"
+        return self._answer_at_the_ceiling(
+            working,
+            max_tokens=max_tokens,
+            kind=kind,
+            user_facing=user_facing,
+            purpose=purpose,
+            rounds=rounds,
+            trace=trace,
         )
+
+    _CEILING_NOTE = (
+        "（系统）工具轮数到顶：这次已经用了 {rounds} 轮，不能再调用工具了。"
+        "用你手上已经查到的材料回答；没查到的、没做完的，就直接说没查到、没做完。"
+    )
+
+    def _answer_at_the_ceiling(
+        self,
+        working: list[dict[str, Any]],
+        *,
+        max_tokens: int,
+        kind: str,
+        user_facing: bool,
+        purpose: str,
+        rounds: int,
+        trace: list[dict[str, Any]],
+    ) -> tuple[Any, list[dict[str, Any]]]:
+        """Spend the last call on answering, not on a refusal.
+
+        2026-10-26 12:39: 老大问「你的机制是每次运行都要读一遍 self 吗」，她问了三次目录
+        还想再问，第四轮撞上「工具调用超过 3 轮」——整轮被判失败，他收到的是一条系统错误，
+        而那一轮她已经查到了答案要用的东西。上限本身是对的（无界检索会花光预算和她自己的
+        时间），但「到顶」不等于「不回答」。
+
+        所以到顶后不再给工具，让她拿手里的材料说话，并在 meta.tools 里留下
+        tool_round_limit，事后能看出这句回答是在什么条件下说出来的。
+        """
+        if self.runtime is None:
+            raise RuntimeError("runtime is not configured")
+        final = list(working)
+        final.append({"role": "system", "content": self._CEILING_NOTE.format(rounds=rounds)})
+        estimated = self.budget.estimate(final, max_tokens, self.config.model)
+        decision = self.budget.check(estimated, kind=kind, user_facing=user_facing, now=self.now_fn())
+        if not decision.allowed:
+            raise ToolBudgetExceeded(decision.reason)
+        completion = self.runtime.complete(final, max_tokens=max_tokens, purpose=purpose)
+        self.budget.record_completion(completion, kind=kind, now=self.now_fn(), user_facing=user_facing)
+        trace.append({"name": "-", "ok": True, "note": "tool_round_limit", "rounds": rounds})
+        if list(getattr(completion, "tool_calls", []) or []):
+            # Nothing was offered, so this can only be a provider echoing a call
+            # back. Refusing is still better than pretending the tools ran.
+            raise ToolRoundLimitExceeded(
+                f"工具调用超过 {rounds} 轮；停止继续调用，避免无界检索和无界动作。"
+            )
+        return completion, trace
 
     def process_message(self, incoming: IncomingMessage) -> str | None:
         now = self.now_fn()

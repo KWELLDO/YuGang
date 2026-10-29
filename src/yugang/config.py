@@ -180,7 +180,13 @@ class Config:
 
     # Read-only memory tools during a waking conversation.
     memory_tools_enabled: bool = True
-    max_tool_rounds: int = 3
+    # A round is one model call that asks for tools. Three was enough to look
+    # something up and too few to explore: on 2026-10-26 she spent all three
+    # listing her own source tree (source_list, then src, then src/yugang) and
+    # the question she was answering never got an answer. Six leaves room for a
+    # real look-around; the budget gate still runs on every round, and hitting
+    # the ceiling now ends in an answer, not in silence.
+    max_tool_rounds: int = 6
 
     # Budget (CNY per local day).
     daily_budget_cny: float = 5.0
