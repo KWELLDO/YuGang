@@ -713,3 +713,39 @@ live 里的 `drill` 字样已为 0，`/health` 回到 `ok=true worker_alive=true
 教训：**状态的「读过」必须算作「跑过」**；**探针要问她被配置的那个地址**；
 **同一个失败写第二遍不是勤奋，是把她的最近记忆挤空**。
 
+
+## 工具轮数到顶不再哑掉；她第一次在真身里连查七次（2026-10-29 08:30 CST，已部署 + 真身验证）
+
+起因是 2026-10-26T12:39 老大问「你的机制是每次运行都要读一遍 self 吗」。她连查三轮目录
+（空 → `src` → `src/yugang`），第四轮还想查，整轮被判「工具调用超过 3 轮」，L1 写的是
+「（系统）她暂时醒不来」——那句问题从来没被回答过，而从他那头看，这和她两小时前的
+AttributeError 长得一模一样。
+
+上限是对的（无界检索会花光预算和她的时间），错的是把「不许再查」当成「不许说话」。
+
+| 改了什么 | 位置 | 为什么 |
+| --- | --- | --- |
+| 到顶时走一次不带工具的收尾 | `gateway/service.py` `_answer_at_the_ceiling` | 已经查到的材料够回答；没查到的就直说没查到 |
+| 那一轮的 system 行明说轮数用完 | 同上 `_CEILING_NOTE` | 让她知道自己为什么不能再查，而不是突然失声 |
+| 回复事件的 `meta.tools` 记 `note: tool_round_limit` | 同上 | 事后能分清「查够了」与「被截断」 |
+| 轮数 3 → 6 | `config.py` `max_tool_rounds` | 那次三轮全花在列目录上，六轮才够看一个东西 |
+| 模型在没有工具可选时仍要调用 → 仍然 fail loud | 同上 | 不能假装查过 |
+
+测试：`test_hitting_the_tool_ceiling_still_ends_in_an_answer`（三轮、最后一轮
+`tool_count == 0`、没有 failed 消息、meta 记了 note）替换了原来那条把「哑掉」当期望的用例；
+另加 `test_a_provider_that_calls_tools_when_none_were_offered_still_fails_loud`。
+全量 523 passed, 2 skipped。
+
+真身验证（部署后，以操作员身份打到 `POST /message`）：「别凭印象：去你自己的源码目录里看看，
+然后用一句话告诉我你最想改的那个文件叫什么。」她答（`msg_20261029T000659661167_c6b604`）：
+「说一个：docs/STATUS.md。它十万多字，我每次想核对状态都得从里面翻，翻不动。」
+`world_ledger` 从 4 行到 11 行，七次调用都在四秒内，最后一轮正常收尾（没有 `tool_round_limit`，
+说明六轮够用）。其中一次 `files_read` 读 `docs/NOTES.md` 失败——她把 workspace 和她那份源码
+镜像搞混了；另一次 `source_list` 的 `bytes` 被读成了字数（107,921 字节 ≈ 三万字，她读成十万多字）。
+
+跟着改的两件小事（`30604a6`）：`files_*` 与 `source_*` 的说明互相点名（「这是程序本身，
+我自己的房间用 files_list」），`source_list` 的说明注明 `bytes` 是字节、中文一字约三字节。
+以及 `db7f441` 新加 `docs/NOW.md`：一页当前实情（跑什么、数字、最近七条改动、没闭合的事、
+怎么验证这一页），STATUS 顶上写明本文件是历史不是状态。她的读法验证：`source_read("docs/NOW.md")`
+返回 1699 字符，她答「大概一千七百个字符」——这次对上了。
+
