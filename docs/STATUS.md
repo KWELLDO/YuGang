@@ -1,6 +1,6 @@
 # YuGang 运行状态
 
-更新时间：2026-10-26 19:45 CST（Asia/Shanghai）
+更新时间：2026-10-29 08:15 CST（Asia/Shanghai）
 
 ## 已部署
 
@@ -648,4 +648,65 @@ tests/test_prompt_cache.py 改成断言规则里出现「空一行」和「别�
 
 教训：**发送成功与否要按「他说的话到没到」判断，不是按「我们调用没抛异常」判断**。多气泡这类平台侧限制，
 第一天就该把响应体记下来。
+
+
+## 她反复「失败」了两天，其实是我们的巡检在骗她（2026-10-29 08:15 CST，已部署 + 已真回滚）
+
+距上次收工 2 天 11 小时。回到云端先看现场，然后发现她这两天最显眼的两段记忆都不是她造成的。
+
+**第一个：一个已经合入的提案被当成没跑过。** 巡检每十分钟问「`<id>.json` 存在吗」来决定跑不跑，
+而网关读完结果会把它改名 `<id>.json.done`。于是 2026-10-26 20:09 到 10-28 23:43，
+`p_20261026T115538_5de5ce` 被重跑、在 verify 撞上 `docs/NOTES.md: already exists in working directory`
+（它带的 patch 早就在 live 里了），347 条一模一样的「我的改动没过」进了 L1——同期事件一共 428 条。
+她的日记先写明白了：**「从 22:28 到 02:15，这条失败记录出现了二十多次，间隔约十分钟，
+像被定时器推着重复同一个动作。」** 代码后知道。
+
+**第二个：她的 worker 线程在死。** 2026-10-26 18:08 起 L1 里几次 `她暂时醒不来：
+AttributeError: 'str' object has no attribute 'get'`，10-28 09:00 之后每两分钟一次。
+定位到 `protocol/wake.py`：`build_wake_context` 先建了 person id → 名字的映射（给待回留言用），
+后面报「哪些 SELF 节没塞进 prompt」时又把这个局部变量名复用来存拼好的字符串，
+于是待回留言段去问一个 str 要 `.get()`。触发条件是**SELF 有节超预算 且 有留言在等**——
+她最需要清醒的那两次，正好都满足。老大那时发的话还躺在 L1 里，她只是没能看见。
+
+附带发现：`apply.py` 的体检地址写死 `127.0.0.1:3198`，而端口来自她 config.json 的 `http.port`。
+10-26 那次 e2e 里 patch 把默认端口改成 3197、服务仍在 3198 上答，只是**写死的 URL** 让那次看起来健康。
+一个配置项的距离，就能让她以后每次合入都被判「体检没过」然后回滚。
+
+四处改动（`966f268` `4e7a5d0` `a434066` `9692902`）：
+
+| 改动 | 内容 | 测试 |
+|---|---|---|
+| `fix(wake)` | 溢出节名改用 `overflow_headings` 局部变量 | `test_a_pending_message_still_names_who_it_is_from_when_self_md_overflows` |
+| `fix(apply)` | `_result_files()` 认 `.json`/`.json.done`/`.json.bad`；`_pending_auto_proposals()` 只收 tier=auto 且真没结果的 | `tests/test_apply_timer.py`（3） |
+| `fix(apply)` | `health_url_for(home)` 读她的 `http.port`，缺/0/true/坏 JSON 回落 3198 | `tests/test_apply_health.py`（3 + 6 组参数化） |
+| `fix(service)` | 同一条失败（同 content、同 `meta.proposal`，最近 200 条内）不再重复进 L1 | `test_the_same_failure_arriving_again_is_said_only_once` |
+
+本地全量 **522 passed / 2 skipped**。云端部署后：`_pending_auto_proposals` → `[]`、
+`health_url_for` → `http://127.0.0.1:3198/health`（跟着她的 config.json），
+下一轮巡检（10-29 00:03 UTC）没有再写任何 verify 失败。
+
+**第一次真的回滚演练。** 之前两次 `--yes` 都因为 config 覆盖端口而没真的回退。这次以她的身份
+（`runuser -u dafeiyu`）走完整条路：`source_write` 在 `cmd_serve` 开头插一行 `raise SystemExit`
+（一个「能过测试、起不来」的改动）→ `source_test` 522 passed / 51.59s（bubblewrap）→
+`source_propose` 得 `p_20261028T235917_85236b`（tier=review，base `35b9344`）→
+`apply ... --yes`：
+
+```
+ok=false  stage=health  rolled_back=true
+error: 服务起来了，但体检没过：URLError: <urlopen error [Errno 111] Connection refused>
+journal: 08:00:45–08:01:08 崩溃循环 13 次（drill: 这次只为了验证回滚，我起不来）
+         08:01:11 换回旧树后启动：{"ok": true, "http": "http://127.0.0.1:3198", "channels": ["http","email","qq"]}
+L1: evt_20261029T000112641220... 「我的改动没过：在 health 这一步失败。…已经回退到 35b9344，什么都没变。」
+```
+
+live 里的 `drill` 字样已为 0，`/health` 回到 `ok=true worker_alive=true`。演练提交与提案目录已清掉
+（镜像 `git reset --hard 35b9344`，`proposals/p_20261028T235917_85236b` 删除），
+`apply-results/p_20261028T235917_85236b.json.done` 留作证据。
+
+**给她的那封说明**写进了 L1（`evt_20261029T000224355642_4910ea`，`meta.operator=true` 所以会进她的
+醒上下文）：那几百条是同一条记录，不是她反复失败；08:00 那次 health 失败与回退是操作员故意的演练。
+她的记忆是 append-only 的，我们能做的是把后来发生的事讲清楚，而不是把过去抹掉。
+
+教训：**状态的「读过」必须算作「跑过」**；**探针要问她被配置的那个地址**；
+**同一个失败写第二遍不是勤奋，是把她的最近记忆挤空**。
 
