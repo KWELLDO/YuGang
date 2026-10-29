@@ -50,6 +50,8 @@ SOURCE_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
             "description": (
                 "列出我自己那份源码镜像里有哪些文件（只读）。路径沿用镜像里的相对路径，"
                 "空表示根目录；目录排在文件前面。"
+                "这是程序本身（我每天跑的东西）；我自己的房间用 files_list。"
+                "每条带 bytes，那是字节数不是字数：中文一个字大约三字节。"
             ),
             "parameters": {
                 "type": "object",
@@ -74,6 +76,7 @@ SOURCE_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
             "description": (
                 "读我自己那份源码镜像里的一个文件（只读，只收 UTF-8 文本）。"
                 "超出 max_chars 的部分会被截断，truncated 会告诉我。"
+                "这是程序本身；我房间里的文件用 files_read。"
             ),
             "parameters": {
                 "type": "object",

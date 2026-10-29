@@ -70,7 +70,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "files_list",
-            "description": "列出你 workspace 里的文件。path 省略表示根目录。",
+            "description": (
+                "列出你 workspace 里的文件。path 省略表示根目录。"
+                "workspace 是你自己的房间（能写能改）；程序源码不在这里，用 source_list。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"path": {"type": "string", "description": "相对路径，例如 notes 或 notes/today.md。"}},
@@ -81,7 +84,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "files_read",
-            "description": "读你 workspace 里的一个文本文件。",
+            "description": (
+                "读你 workspace 里的一个文本文件。"
+                "程序源码不在 workspace 里——想读自己是怎么写的，用 source_read。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
