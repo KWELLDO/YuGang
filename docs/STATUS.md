@@ -1,6 +1,9 @@
 # YuGang 运行状态
 
-更新时间：2026-10-29 08:15 CST（Asia/Shanghai）
+更新时间：2026-10-29 08:20 CST（Asia/Shanghai）
+
+> 这是逐条历史（append-only），不是「现在是什么样」。要核对当前状态，先看
+> [`docs/NOW.md`](NOW.md)：一页，短，改在状态真的变了的时候。
 
 ## 已部署
 
