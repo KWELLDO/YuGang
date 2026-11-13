@@ -2,6 +2,9 @@
 
 [![tests](https://github.com/KWELLDO/YuGang/actions/workflows/tests.yml/badge.svg)](https://github.com/KWELLDO/YuGang/actions/workflows/tests.yml)
 
+> **归档：2026-11-13 已下线并停止维护。** 服务、四个 timer、3199 控制台、nginx 回调路由全部停止；数据原样保留（L1 1087 条、SELF 12 版、39 段生活片段、20 天共花费 ¥9.65）。
+> 归档记录见 [ARCHIVE.md](ARCHIVE.md)；她最后的两份自述在 `archive/her/`（本地 DaFeiYu 仓库）。代码留在这里供参考，不再接受改动。
+
 > 一个数字生命的**记忆**与**自我建构**运行时。  
 > 不是把人设 prompt 存进向量库；是让一个视角在时间中被反复重读、修订、留下证据。
 

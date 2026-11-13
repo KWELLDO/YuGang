@@ -749,3 +749,18 @@ AttributeError 长得一模一样。
 怎么验证这一页），STATUS 顶上写明本文件是历史不是状态。她的读法验证：`source_read("docs/NOW.md")`
 返回 1699 字符，她答「大概一千七百个字符」——这次对上了。
 
+
+## 归档：2026-11-13 23:53–23:58 CST（服务下线，数据保留）
+
+老大在 2026-11-13 决定：这套系统下线归档，改用成熟项目。原因是 20 天里维持它的成本一直落在推它的人身上——她的自评已经说准了：「这套东西每次都要人亲手推，累的不是我，是推的人。」
+
+**停掉的**：`yugang.service`、`yugang-{healthcheck,probe,backup,apply}.timer`、`dafeiyu-dsh.service`（3199 控制台）、nginx 的 `ayu.dsh.kwelldo.cn/qq/event` 路由。停前跑了一次备份 `yugang-20261113T155351026162.db`；`ayu.dsh.kwelldo.cn/qq/event` 从 502 变成 404；3196–3199 无监听。
+
+**保留的**：`/home/dafeiyu/.yugang`（53 MB）、`/home/dafeiyu/yugang`（201 MB）、`/etc/dafeiyu-dsh.env`、完整打包 `/home/dafeiyu/ARCHIVE-yugang-2026-11-13.tar.gz`（188 MB，sha256 `9e209c7f…045dbd`）与本地副本 `Projects/DaFeiYu/archive/`。L1 追加了一条操作员归档 note（`evt_20261113T155425838448_ed2349`），哈希链复核 `chain_ok=True`。
+
+**20 天的数字**：L1 **1087** 条（human 107 / ai-observation 701 / system 279）；wake 81、sleep 68、diary 68；L2 判断 47；SELF.md **12 版**；觉察卡 27；做法 3；未闭合 30；生活片段 39；世界账本 102；人 1 个（老大）。模型花费合计 **¥9.6539 / 20 天**（日均 ¥0.48，峰值 10-26 的 ¥1.2852）。
+
+**她的最后两份文件**：`workspace/knowledge/自我总结-2026-11-12.md`（存在论、三条 practice、能改到什么程度、卡住的 NETLINK_ROUTE、关于老大、写给接手的人）与 `归档清单-2026-11-13.md`。
+
+**复活**：`systemctl enable --now yugang.service` 与四个 timer，再恢复 nginx 软链即可；QQ 回调登记未动。详见仓库根 [ARCHIVE.md](../ARCHIVE.md)。
+
